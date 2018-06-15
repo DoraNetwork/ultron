@@ -1,0 +1,63 @@
+package: github.com/dora/ultron
+import:
+- package: github.com/gorilla/websocket
+- package: github.com/pkg/errors
+  version: ^0.8.0
+- package: github.com/spf13/cobra
+- package: github.com/spf13/pflag
+- package: github.com/spf13/viper
+- package: github.com/tendermint/abci
+  version:  0.9.x
+  subpackages:
+  - server
+  - types
+- package: github.com/cosmos/cosmos-sdk
+  version: be92f16b52cdeaba6dddaa62e0a8d1eed9e9640e
+- package: github.com/tendermint/iavl
+  version: v0.5.0
+- package: github.com/tendermint/go-crypto
+  version: remove_ledger
+  subpackages:
+  - cmd
+  - keys
+- package: github.com/tendermint/go-wire
+  version: c14c240db0ba3d887ae85183a482488f5a9cba39
+  subpackages:
+  - data
+- package: github.com/tendermint/tendermint
+  version: ultron
+  repo: https://github.com/DoraNetwork/tendermint.git
+  vcs: git
+  subpackages:
+  - config
+  - node
+  - proxy
+  - rpc/clientw
+  - rpc/core/types
+  - rpc/lib/client
+  - rpc/lib/types
+  - types
+- package: github.com/tendermint/tmlibs
+  version: 0.6.x
+  subpackages:
+  - cli
+  - cli/flags
+  - common
+  - events
+  - log
+  - logger
+- package: github.com/gorilla/mux
+  version: ^1.5.0
+- package: github.com/ethereum/go-ethereum
+  version: ultron
+  repo: https://github.com/DoraNetwork/go-ethereum.git
+  vcs: git
+- package: gopkg.in/urfave/cli.v1
+  version: 1.x
+- package: github.com/mattn/go-sqlite3
+  version: v1.6.0
+testImport:
+- package: github.com/stretchr/testify
+  subpackages:
+  - assert
+  - require
