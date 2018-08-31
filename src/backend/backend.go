@@ -32,10 +32,11 @@ type Backend struct {
 	ethConfig *eth.Config
 
 	// txBroadcastLoop subscription
-	txSub *event.TypeMuxSubscription
+	txSub  *event.TypeMuxSubscription
+	ptxSub *event.TypeMuxSubscription
 
 	// EthState
-	es *ethereum.EthState
+	es *ethereum.EthStateWrapper
 
 	// client for forwarding txs to Tendermint over http
 	client *rpcClient.HTTP
@@ -55,7 +56,7 @@ func NewBackend(ctx *node.ServiceContext, ethConfig *eth.Config,
 	client *rpcClient.HTTP) (*Backend, error) {
 
 	// Create working ethereum state.
-	es := ethereum.NewEthState()
+	es := ethereum.NewEthStateWrapper()
 
 	// eth.New takes a ServiceContext for the EventMux, the AccountManager,
 	// and some basic functions around the DataDir.
@@ -64,8 +65,7 @@ func NewBackend(ctx *node.ServiceContext, ethConfig *eth.Config,
 		return nil, err
 	}
 
-	es.SetEthereum(ethereum)
-	es.SetEthConfig(ethConfig)
+	es.SetConfig(ethereum, ethConfig)
 
 	// send special event to go-ethereum to switch homestead=true.
 	currentBlock := ethereum.BlockChain().CurrentBlock()
@@ -120,10 +120,28 @@ func (b *Backend) SetTMNode(tmNode *tmn.Node) {
 //----------------------------------------------------------------------
 // Handle block processing
 
+func (b *Backend) UpdateProposer() {
+	if b.es == nil {
+		return
+	}
+	res, _ := b.client.Validators(nil)
+	if res != nil {
+		b.es.UpdateProposer(res.IsProposer)
+	}
+}
+
+func (b *Backend) CheckTx(tx *ethTypes.Transaction) abciTypes.ResponseCheckTx {
+	return b.es.CheckTx(tx)
+}
+
 // DeliverTx appends a transaction to the current block
 // #stable
 func (b *Backend) DeliverTx(tx *ethTypes.Transaction) abciTypes.ResponseDeliverTx {
 	return b.es.DeliverTx(tx)
+}
+
+func (b *Backend) DeliverPtx(ptx *ethereum.ParalleledTransaction) abciTypes.ResponseDeliverTx {
+	return b.es.DeliverPtx(ptx)
 }
 
 // AccumulateRewards accumulates the rewards based on the given strategy
@@ -140,6 +158,10 @@ func (b *Backend) Commit(receiver common.Address) (common.Hash, error) {
 
 func (b *Backend) EndBlock() {
 	b.es.EndBlock()
+}
+
+func (b *Backend) GetTotalUsedGasFee() *big.Int {
+	return b.es.TotalUsedGasFee
 }
 
 // InitEthState initializes the EthState
@@ -177,7 +199,7 @@ func (b *Backend) APIs() []rpc.API {
 	retApis := []rpc.API{}
 	for _, v := range apis {
 		if v.Namespace == "net" {
-            continue
+			continue
 		}
 		if v.Namespace == "miner" {
 			continue

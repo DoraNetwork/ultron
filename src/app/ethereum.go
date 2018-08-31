@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/dora/ultron/backend/ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -14,13 +15,16 @@ import (
 	tmLog "github.com/tendermint/tmlibs/log"
 
 	"github.com/dora/ultron/backend"
-	"github.com/dora/ultron/const"
 	emtTypes "github.com/dora/ultron/backend/types"
+	"github.com/dora/ultron/errors"
+	//"github.com/dora/ultron/const"
+	emtConfig "github.com/dora/ultron/node/config"
 )
 
 const (
 	MinGasPrice = 2e9 // 2 Gwei
 )
+var checkNonce = true
 
 type FromTo struct {
 	from common.Address
@@ -72,6 +76,11 @@ func NewEthermintApplication(backend *backend.Backend,
 
 	if err := app.backend.InitEthState(app.Receiver()); err != nil {
 		return nil, err
+	}
+
+	testConfig, _ := emtConfig.ParseConfig()
+	if (testConfig != nil && testConfig.TestConfig.RepeatTxTest) {
+		checkNonce = false
 	}
 
 	return app, nil
@@ -138,8 +147,45 @@ func (app *EthermintApplication) InitChain(req abciTypes.RequestInitChain) abciT
 // #stable - 0.4.0
 func (app *EthermintApplication) CheckTx(tx *ethTypes.Transaction) abciTypes.ResponseCheckTx {
 	app.logger.Debug("CheckTx: Received valid transaction", "tx", tx) // nolint: errcheck
+	res := app.validateTx(tx)
+	if res.Code == abciTypes.CodeTypeOK {
+		return app.backend.CheckTx(tx)
+	} else {
+		return res
+	}
+}
 
-	return app.validateTx(tx)
+// CheckTx checks a transaction is valid but does not mutate the state
+// #stable - 0.4.0
+func (app *EthermintApplication) CheckPtx(tx *ethereum.ParalleledTransaction) abciTypes.ResponseCheckTx {
+	app.logger.Debug("CheckTx: Received valid transaction", "tx", tx) // nolint: errcheck
+	// res := app.validateTx(tx)
+	// if res.Code == abciTypes.CodeTypeOK {
+	//	return app.backend.CheckPtx(tx)
+	// } else {
+	// 	return res
+	// }
+	return abciTypes.ResponseCheckTx{Code: abciTypes.CodeTypeOK}
+}
+
+// DeliverTx executes a transaction against the latest state
+// #stable - 0.4.0
+func (app *EthermintApplication) DeliverPtx(tx *ethereum.ParalleledTransaction) abciTypes.ResponseDeliverTx {
+	// app.logger.Debug("DeliverTx: Received valid transaction", "tx", tx) // nolint: errcheck
+
+	res := app.backend.DeliverPtx(tx)
+	if res.IsErr() {
+		// nolint: errcheck
+		app.logger.Error("DeliverTx: Error delivering tx to ethereum backend", "tx", tx,
+			"err", res.Error())
+		return res
+	}
+	//TODO: implement collectTx
+	//app.CollectTx(tx)
+
+	return abciTypes.ResponseDeliverTx{
+		Code: abciTypes.CodeTypeOK,
+	}
 }
 
 // DeliverTx executes a transaction against the latest state
@@ -237,6 +283,10 @@ func (app *EthermintApplication) Query(query abciTypes.RequestQuery) abciTypes.R
 	return abciTypes.ResponseQuery{Code: abciTypes.CodeTypeOK, Value: bytes}
 }
 
+func (app *EthermintApplication) GetTotalUsedGasFee() *big.Int {
+	return app.backend.GetTotalUsedGasFee()
+}
+
 //-------------------------------------------------------
 func (app *EthermintApplication) basicValidate(tx *ethTypes.Transaction) (*state.StateDB, common.Address, uint64, abciTypes.ResponseCheckTx) {
 	// Heuristic limit, reject transactions over 32KB to prevent DOS attacks
@@ -291,11 +341,13 @@ func (app *EthermintApplication) basicValidate(tx *ethTypes.Transaction) (*state
 	}
 
 	nonce := currentState.GetNonce(from)
-    if nonce != tx.Nonce() {
-		return nil, common.Address{}, 0,
-			abciTypes.ResponseCheckTx{
-				Code: errors.ErrorTypeBadNonce,
-				Log:  core.ErrNonceTooLow.Error()}
+	if (checkNonce) {
+		if nonce != tx.Nonce() {
+			return nil, common.Address{}, 0,
+				abciTypes.ResponseCheckTx{
+					Code: errors.ErrorTypeBadNonce,
+					Log:  core.ErrNonceTooLow.Error()}
+		}
 	}
 	return currentState, from, nonce, abciTypes.ResponseCheckTx{Code: abciTypes.CodeTypeOK}
 }
@@ -303,7 +355,7 @@ func (app *EthermintApplication) basicValidate(tx *ethTypes.Transaction) (*state
 // validateTx checks the validity of a tx against the blockchain's current state.
 // it duplicates the logic in ethereum's tx_pool
 func (app *EthermintApplication) validateTx(tx *ethTypes.Transaction) abciTypes.ResponseCheckTx {
-    currentState, from, nonce, resp := app.basicValidate(tx)
+	currentState, from, nonce, resp := app.basicValidate(tx)
 	if resp.Code != abciTypes.CodeTypeOK {
 		return resp
 	}

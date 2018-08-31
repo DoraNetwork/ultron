@@ -1,9 +1,11 @@
 package ethereum
 
-
 import (
+	"fmt"
+	//"time"
 	"math/big"
 	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
@@ -18,8 +20,9 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	abciTypes "github.com/tendermint/abci/types"
 
-	"github.com/dora/ultron/const"
 	emtTypes "github.com/dora/ultron/backend/types"
+	"github.com/dora/ultron/errors"
+	//"github.com/dora/ultron/const"
 )
 
 //----------------------------------------------------------------------
@@ -34,8 +37,10 @@ import (
 // instead of using a go-routine.
 
 type EthState struct {
-	ethereum  *eth.Ethereum
-	ethConfig *eth.Config
+	ethereum       *eth.Ethereum
+	ethConfig      *eth.Config
+	txExecutor     *TransactionExecutor
+	stateProcessor *StateProcessor
 
 	mtx  sync.Mutex
 	work workState // latest working state
@@ -44,17 +49,28 @@ type EthState struct {
 // After NewEthState, call SetEthereum and SetEthConfig.
 func NewEthState() *EthState {
 	return &EthState{
-		ethereum:  nil, // set with SetEthereum
-		ethConfig: nil, // set with SetEthConfig
+		ethereum:   nil, // set with SetEthereum
+		ethConfig:  nil, // set with SetEthConfig
+		txExecutor: newTransactionExecutor(),
 	}
 }
 
-func (es *EthState) SetEthereum(ethereum *eth.Ethereum) {
+func (es *EthState) SetConfig(ethereum *eth.Ethereum, ethConfig *eth.Config) {
 	es.ethereum = ethereum
+	es.ethConfig = ethConfig
+	es.txExecutor.setConfig(es.ethereum, es.ethConfig)
+	es.stateProcessor = NewStateProcessor(ethereum.ApiBackend.ChainConfig(), ethereum.BlockChain(), ethereum.BlockChain().Engine())
+	ethereum.BlockChain().SetProcessor(es.stateProcessor)
 }
 
-func (es *EthState) SetEthConfig(ethConfig *eth.Config) {
-	es.ethConfig = ethConfig
+func (es *EthState) UpdateProposer(isProposer bool) {
+	es.txExecutor.UpdateProposer(isProposer)
+}
+
+func (es *EthState) CheckTx(tx *ethTypes.Transaction) abciTypes.ResponseCheckTx {
+	// es.ethereum.EventMux().Post(TxPreEvent{Tx:tx, Local:false})
+	//TODO:another case, only broadcast
+	return abciTypes.ResponseCheckTx{Code: abciTypes.CodeTypeOK}
 }
 
 // Execute the transaction.
@@ -66,6 +82,29 @@ func (es *EthState) DeliverTx(tx *ethTypes.Transaction) abciTypes.ResponseDelive
 	chainConfig := es.ethereum.ApiBackend.ChainConfig()
 	blockHash := common.Hash{}
 	return es.work.deliverTx(blockchain, es.ethConfig, chainConfig, blockHash, tx)
+}
+
+func (es *EthState) DeliverPtx(ptx *ParalleledTransaction) abciTypes.ResponseDeliverTx {
+	es.mtx.Lock()
+	defer es.mtx.Unlock()
+
+	// fmt.Println("deliver ptx", ptx.Hash().Hex())
+	if es.txExecutor.IsValidator() {
+		wg := &sync.WaitGroup{}
+		ndag := &NotifiableDag{dag: ptx.Dag(), wg: wg}
+		wg.Add(1)
+		es.txExecutor.dispatchDagCh <- ndag
+		wg.Wait()
+		fmt.Println("validator verify ptx done")
+	}
+	if !es.txExecutor.DeliverTx(ptx) {
+		return abciTypes.ResponseDeliverTx{Code: errors.ErrorTypeInternalErr}
+	}
+
+	blockchain := es.ethereum.BlockChain()
+	chainConfig := es.ethereum.ApiBackend.ChainConfig()
+	blockHash := common.Hash{}
+	return es.work.deliverPtx(blockchain, es.ethConfig, chainConfig, blockHash, ptx)
 }
 
 // called by ultron tx only in deliver_tx
@@ -89,6 +128,7 @@ func (es *EthState) Commit(receiver common.Address) (common.Hash, error) {
 	es.mtx.Lock()
 	defer es.mtx.Unlock()
 
+	es.work.state = es.txExecutor.commitState()
 	blockHash, err := es.work.commit(es.ethereum.BlockChain(), es.ethereum.ChainDb())
 	if err != nil {
 		return common.Hash{}, err
@@ -121,14 +161,20 @@ func (es *EthState) resetWorkState(receiver common.Address) error {
 	}
 
 	currentBlock := blockchain.CurrentBlock()
-	ethHeader := newBlockHeader(receiver, currentBlock)
+	ethHeader := newBlockHeader(receiver, currentBlock, es.ethereum.ApiBackend.ChainConfig())
+	es.txExecutor.makeCurrent(es.ethereum, es.ethConfig, ethHeader, currentBlock, state)
 
 	es.work = workState{
+		ethereum:        es.ethereum,
+		ethConfig:       es.ethConfig,
 		header:          ethHeader,
 		parent:          currentBlock,
 		state:           state,
 		txIndex:         0,
 		totalUsedGas:    big.NewInt(0),
+		totalUsedGasFee: big.NewInt(0),
+		txExecutor:      es.txExecutor,
+		stateProcessor:  es.stateProcessor,
 		gp:              new(core.GasPool).AddGas(ethHeader.GasLimit),
 	}
 	return nil
@@ -139,7 +185,7 @@ func (es *EthState) UpdateHeaderWithTimeInfo(
 
 	es.mtx.Lock()
 	defer es.mtx.Unlock()
-
+	es.txExecutor.beginBlock()
 	es.work.updateHeaderWithTimeInfo(config, parentTime, numTx)
 }
 
@@ -170,9 +216,15 @@ func (es *EthState) Pending() (*ethTypes.Block, *state.StateDB) {
 // The work struct handles block processing.
 // It's updated with each DeliverTx and reset on Commit.
 type workState struct {
-	header        *ethTypes.Header
-	parent        *ethTypes.Block
-	state         *state.StateDB
+	ethereum  *eth.Ethereum
+	ethConfig *eth.Config
+
+	header *ethTypes.Header
+	parent *ethTypes.Block
+	state  *state.StateDB
+
+	txExecutor     *TransactionExecutor
+	stateProcessor *StateProcessor
 
 	txIndex      int
 	transactions []*ethTypes.Transaction
@@ -180,6 +232,7 @@ type workState struct {
 	allLogs      []*ethTypes.Log
 
 	totalUsedGas    *big.Int
+	totalUsedGasFee *big.Int
 	gp              *core.GasPool
 }
 
@@ -197,7 +250,7 @@ func (ws *workState) deliverTx(blockchain *core.BlockChain, config *eth.Config,
 	tx *ethTypes.Transaction) abciTypes.ResponseDeliverTx {
 
 	ws.state.Prepare(tx.Hash(), blockHash, ws.txIndex)
-	receipt, _, err := core.ApplyTransaction(
+	receipt, usedGas, err := core.ApplyTransaction(
 		chainConfig,
 		blockchain,
 		nil, // defaults to address of the author of the header
@@ -212,6 +265,9 @@ func (ws *workState) deliverTx(blockchain *core.BlockChain, config *eth.Config,
 		return abciTypes.ResponseDeliverTx{Code: errors.ErrorTypeInternalErr, Log: err.Error()}
 	}
 
+	usedGasFee := big.NewInt(0).Mul(usedGas, tx.GasPrice())
+	ws.totalUsedGasFee.Add(ws.totalUsedGasFee, usedGasFee)
+
 	logs := ws.state.GetLogs(tx.Hash())
 
 	ws.txIndex++
@@ -224,16 +280,42 @@ func (ws *workState) deliverTx(blockchain *core.BlockChain, config *eth.Config,
 	return abciTypes.ResponseDeliverTx{Code: abciTypes.CodeTypeOK}
 }
 
+func (ws *workState) deliverPtx(blockchain *core.BlockChain, config *eth.Config,
+	chainConfig *params.ChainConfig, blockHash common.Hash,
+	ptx *ParalleledTransaction) abciTypes.ResponseDeliverTx {
+	etxs := ws.txExecutor.getExecutedTransactions(ptx)
+	for _, etx := range etxs {
+		if !isEthTx(etx.tx) {
+			continue
+		}
+		tx := etx.tx
+		ws.totalUsedGas.Add(ws.totalUsedGas, etx.receipt.GasUsed)
+
+		//Assign CumulativeGasUsed
+		etx.receipt.CumulativeGasUsed = ws.totalUsedGas
+
+		ws.transactions = append(ws.transactions, tx)
+		ws.receipts = append(ws.receipts, etx.receipt)
+		for _, log := range etx.receipt.Logs {
+			log.TxIndex = uint(ws.txIndex)
+		}
+		ws.allLogs = append(ws.allLogs, etx.receipt.Logs...)
+
+		ws.txIndex++
+	}
+	return abciTypes.ResponseDeliverTx{Code: abciTypes.CodeTypeOK}
+}
+
 // Commit the ethereum state, update the header, make a new block and add it to
 // the ethereum blockchain. The application root hash is the hash of the
 // ethereum block.
 func (ws *workState) commit(blockchain *core.BlockChain, db ethdb.Database) (common.Hash, error) {
-
 	// Commit ethereum state and update the header.
 	hashArray, err := ws.state.CommitTo(db, false) // XXX: ugh hardforks
 	if err != nil {
 		return common.Hash{}, err
 	}
+
 	ws.header.Root = hashArray
 
 	for _, log := range ws.allLogs {
@@ -247,6 +329,7 @@ func (ws *workState) commit(blockchain *core.BlockChain, db ethdb.Database) (com
 
 	// Save the block to disk.
 	// log.Info("Committing block", "stateHash", hashArray, "blockHash", blockHash)
+	ws.stateProcessor.Prepare(ws.state, ws.receipts, ws.allLogs)
 	_, err = blockchain.InsertChain([]*ethTypes.Block{block})
 	if err != nil {
 		// log.Info("Error inserting ethereum block in chain", "err", err)
@@ -274,11 +357,15 @@ func (ws *workState) updateHeaderWithTimeInfo(
 //----------------------------------------------------------------------
 
 // Create a new block header from the previous block.
-func newBlockHeader(receiver common.Address, prevBlock *ethTypes.Block) *ethTypes.Header {
+func newBlockHeader(receiver common.Address, prevBlock *ethTypes.Block, config *params.ChainConfig) *ethTypes.Header {
+	tstart := time.Now()
+	tstamp := tstart.Unix()
 	return &ethTypes.Header{
 		Number:     prevBlock.Number().Add(prevBlock.Number(), big.NewInt(1)),
 		ParentHash: prevBlock.Hash(),
-		GasLimit: core.CalcGasLimit(prevBlock),
-		Coinbase: receiver,
+		GasLimit:   core.CalcGasLimit(prevBlock),
+		Difficulty: ethash.CalcDifficulty(config, prevBlock.Time().Uint64(), prevBlock.Header()),
+		Time:       big.NewInt(tstamp),
+		Coinbase:   receiver,
 	}
 }

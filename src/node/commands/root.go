@@ -15,6 +15,7 @@ import (
 	"github.com/tendermint/tmlibs/log"
 
 	emtUtils "github.com/dora/ultron/backend/cmd/utils"
+	emtConfig "github.com/dora/ultron/node/config"
 )
 
 //nolint
@@ -24,7 +25,7 @@ const (
 )
 
 var (
-	config  = DefaultConfig()
+	config  = emtConfig.DefaultConfig()
 	context *cli.Context
 	logger  = log.NewTMLogger(log.NewSyncWriter(os.Stdout)).With("module", "main")
 )
@@ -32,7 +33,7 @@ var (
 // preRunSetup should be set as PersistentPreRunE on the root command to
 // properly handle the logging and the tracer
 func preRunSetup(cmd *cobra.Command, args []string) (err error) {
-	config, err = ParseConfig()
+	config, err = emtConfig.ParseConfig()
 	if err != nil {
 		return err
 	}

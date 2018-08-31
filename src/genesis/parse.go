@@ -8,6 +8,8 @@ import (
 
 	cmn "github.com/tendermint/tmlibs/common"
 	"strconv"
+
+	"github.com/dora/ultron/const"
 )
 
 // KeyDelimiter is used to separate module and key in
@@ -61,12 +63,12 @@ func GetOptions(path string) ([]Option, error) {
 	cnt := 3 + len(validators)
 	res := make([]Option, 0, cnt)
 	res = append(res, Option{sdk.ModuleNameBase, sdk.ChainKey, genDoc.ChainID})
-	res = append(res, Option{"stake", "max_vals", strconv.Itoa(int(genDoc.MaxVals))})
-	res = append(res, Option{"stake", "reserve_requirement_ratio", genDoc.ReserveRequirementRatio})
+	res = append(res, Option{constant.ModuleNameStake, "max_vals", strconv.Itoa(int(genDoc.MaxVals))})
+	res = append(res, Option{constant.ModuleNameStake, "reserve_requirement_ratio", genDoc.ReserveRequirementRatio})
 
 	// set validators
 	for _, val := range validators {
-		res = append(res, Option{"stake", "validator", string(val)})
+		res = append(res, Option{constant.ModuleNameStake, "validator", string(val)})
 	}
 
 	return res, nil

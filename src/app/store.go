@@ -6,6 +6,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"os"
+	"database/sql"
 
 	"github.com/cosmos/cosmos-sdk/errors"
 	sm "github.com/cosmos/cosmos-sdk/state"
@@ -14,6 +16,9 @@ import (
 	cmn "github.com/tendermint/tmlibs/common"
 	dbm "github.com/tendermint/tmlibs/db"
 	"github.com/tendermint/tmlibs/log"
+	"github.com/spf13/viper"
+	"github.com/tendermint/tmlibs/cli"
+	"github.com/dora/ultron/const"
 
 	"encoding/hex"
 	_ "github.com/mattn/go-sqlite3"
@@ -51,6 +56,11 @@ func NewStoreApp(appName, dbName string, cacheSize int, logger log.Logger) (*Sto
 		return nil, err
 	}
 
+	err = initStakeDB()
+	if err != nil {
+		return nil, err
+	}
+
 	app := &StoreApp{
 		Name:   appName,
 		state:  state,
@@ -83,9 +93,9 @@ func (app *StoreApp) Hash() []byte {
 
 // Committed returns the committed state,
 // also exposing historical queries
-// func (app *StoreApp) Committed() *Bonsai {
-// 	return app.state.committed
-// }
+func (app *StoreApp) Committed() *sm.Bonsai {
+	return app.state.Committed()
+}
 
 // Append returns the working state for DeliverTx
 func (app *StoreApp) Append() sm.SimpleDB {
@@ -269,4 +279,36 @@ func loadState(dbName string, cacheSize int, historySize int64) (*sm.State, erro
 	}
 
 	return sm.NewState(tree, historySize), nil
+}
+
+func initStakeDB() error {
+	rootDir := viper.GetString(cli.HomeFlag)
+	stakeDbPath := path.Join(rootDir, "data", constant.DatabaseName)
+	_, err := os.OpenFile(stakeDbPath, os.O_RDONLY, 0444)
+	if err != nil {
+		db, err := sql.Open("sqlite3", stakeDbPath)
+		if err != nil {
+			return errors.ErrInternal("Initializing stake database: " + err.Error())
+		}
+		defer db.Close()
+
+		sqlStmt := `
+		create table candidates(address text not null primary key, pub_key text not null, shares text not null default '0', voting_power integer default 0, max_shares text not null default '0', comp_rate text not null default '0', website text not null default '', location text not null default '', details text not null default '', verified text not null default 'N', active text not null default 'Y', created_at text not null, updated_at text not null default '');
+		create unique index idx_candidates_pub_key on candidates(pub_key);
+		create table delegators(address text not null primary key, created_at text not null);
+		create table delegations(delegator_address text not null, pub_key text not null, delegate_amount text not null default '0', award_amount text not null default '0', withdraw_amount not null default '0', slash_amount not null default '0', created_at text not null, updated_at text not null default '');
+		create unique index idx_delegations_delegator_address_pub_key on delegations(delegator_address, pub_key);
+		create table delegate_history(id integer not null primary key autoincrement, delegator_address text not null, pub_key text not null, amount text not null default '0', op_code text not null default '', created_at text not null);
+		create index idx_delegate_history_delegator_address on delegate_history(delegator_address);
+		create index idx_delegate_history_pub_key on delegate_history(pub_key);
+		create table punish_history(pub_key text not null, deduction_ratio integer default 0, deduction text not null, reason text not null default '', created_at text not null);
+		create index idx_punish_history_pub_key on punish_history(pub_key);
+		`
+		_, err = db.Exec(sqlStmt)
+		if err != nil {
+			return errors.ErrInternal("Initializing database: " + err.Error())
+		}
+	}
+
+	return nil
 }

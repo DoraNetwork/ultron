@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 
+	"github.com/dora/ultron/backend/ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -25,6 +26,16 @@ func decodeTx(txBytes []byte) (*types.Transaction, error) {
 		return nil, err
 	}
 	return tx, nil
+}
+
+// rlp decode an etherum transaction
+func decodePtx(txBytes []byte) (*ethereum.ParalleledTransaction, error) {
+	ptx := new(ethereum.ParalleledTransaction)
+	rlpStream := rlp.NewStream(bytes.NewBuffer(txBytes), 0)
+	if err := ptx.DecodeRLP(rlpStream); err != nil {
+		return nil, err
+	}
+	return ptx, nil
 }
 
 //-------------------------------------------------------

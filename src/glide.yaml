@@ -7,7 +7,9 @@ import:
 - package: github.com/spf13/pflag
 - package: github.com/spf13/viper
 - package: github.com/tendermint/abci
-  version:  0.9.x
+  version: master
+  repo: https://github.com/DoraNetwork/abci.git
+  vcs: git
   subpackages:
   - server
   - types
@@ -25,7 +27,7 @@ import:
   subpackages:
   - data
 - package: github.com/tendermint/tendermint
-  version: ultron
+  version: master
   repo: https://github.com/DoraNetwork/tendermint.git
   vcs: git
   subpackages:
@@ -49,7 +51,7 @@ import:
 - package: github.com/gorilla/mux
   version: ^1.5.0
 - package: github.com/ethereum/go-ethereum
-  version: ultron
+  version: master
   repo: https://github.com/DoraNetwork/go-ethereum.git
   vcs: git
 - package: gopkg.in/urfave/cli.v1

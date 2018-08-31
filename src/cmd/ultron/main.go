@@ -30,9 +30,12 @@ func main() {
 
 	// add commands
 	prepareNodeCommands()
+	prepareClientCommands()
 
 	UltronCmd.AddCommand(
 		nodeCmd,
+		attachCmd,
+		clientCmd,
 
 		lineBreak,
 		auto.AutoCompleteCmd,
