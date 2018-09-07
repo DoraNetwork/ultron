@@ -59,6 +59,18 @@ func (h *StakeTxHandler) InitState(key, value string, store state.SimpleDB) erro
 		}
 
 		params.MaxVals = uint16(i)
+	case "enable_hybrid_election":
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+				return fmt.Errorf("input must be bool, Error: %v", err.Error())
+		}
+		params.EnableHybridElection = b
+	case "ticket_price":
+		u, err := strconv.ParseUint(value, 10, 64)
+		if err != nil {
+				return fmt.Errorf("input must be uint64, Error: %v", err.Error())
+		}
+		params.TicketPrice = u
 	case "validator":
 		h.setValidator(value, store)
 	default:

@@ -10,6 +10,7 @@ import (
 
 	"github.com/dora/ultron/const"
 	"github.com/dora/ultron/utils"
+	"github.com/dora/ultron/modules/stake/sortition"
 	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/tendermint/abci/types"
 	"github.com/tendermint/go-crypto"
@@ -22,6 +23,8 @@ type Params struct {
 	MaxVals                 uint16         `json:"max_vals"`      // maximum number of validators
 	Validators              string         `json:"validators"`    // initial validators definition
 	ReserveRequirementRatio string         `json:"reserve_requirement_ratio"`
+	EnableHybridElection    bool           `json:"enable_hybrid_election"` // enable DPOS+VRF hybrid election
+	TicketPrice             uint64         `json:"ticket_price"`  // ticket price for each subuser in sortition
 }
 
 func defaultParams() Params {
@@ -30,6 +33,8 @@ func defaultParams() Params {
 		MaxVals:                 100,
 		Validators:              "",
 		ReserveRequirementRatio: "0.1",
+		EnableHybridElection:    false,
+		TicketPrice:             100,
 	}
 }
 
@@ -153,7 +158,7 @@ func (cs Candidates) Sort() {
 }
 
 // update the voting power and save
-func (cs Candidates) updateVotingPower(store state.SimpleDB) Candidates {
+func (cs Candidates) updateVotingPower(store state.SimpleDB, seed []byte) Candidates {
 
 	// update voting power
 	for _, c := range cs {
@@ -165,6 +170,17 @@ func (cs Candidates) updateVotingPower(store state.SimpleDB) Candidates {
 		}
 	}
 	cs.Sort()
+
+	useHybridElection := loadParams(store).EnableHybridElection
+	if useHybridElection || cs.Len() > 22 {
+		cs.electCommittee(store, seed)
+	} else {
+		cs.electStakeSharks(store)
+	}
+	return cs
+}
+
+func (cs Candidates) electStakeSharks(store state.SimpleDB) {
 	for i, c := range cs {
 		// truncate the power
 		if i >= int(loadParams(store).MaxVals) {
@@ -172,8 +188,41 @@ func (cs Candidates) updateVotingPower(store state.SimpleDB) Candidates {
 		}
 		updateCandidate(c)
 	}
-	return cs
 }
+
+func (cs Candidates) electCommittee(store state.SimpleDB, seed []byte) {
+	max := int(loadParams(store).MaxVals)
+	dposNum := max / 3
+	vrfNum := max - dposNum
+
+	totalVotingPower := int64(0)
+	for _, c := range cs {
+		totalVotingPower += c.VotingPower
+	}
+
+	t := loadParams(store).TicketPrice
+
+	committeeSize := 0
+	for i, c := range cs {
+		if i < dposNum {
+			committeeSize++
+		} else if committeeSize < max {
+			_, j := sortition.Sortition(
+					c.PubKey.Bytes(), seed, t,
+					uint64(vrfNum), uint64(c.VotingPower), uint64(totalVotingPower))
+			// TODO: decide reappointment based on j?
+			if j > 0 {
+				committeeSize++
+			} else {
+				c.VotingPower = 0
+			}
+		} else {
+			c.VotingPower = 0
+		}
+
+        updateCandidate(c)
+    }
+ }
 
 // Validators - get the most recent updated validator set from the
 // Candidates. These bonds are already sorted by VotingPower from
@@ -274,14 +323,14 @@ func (vs Validators) Remove(i int32) Validators {
 
 // UpdateValidatorSet - Updates the voting power for the candidate set and
 // returns the subset of validators which have changed for Tendermint
-func UpdateValidatorSet(store state.SimpleDB) (change []*abci.Validator, err error) {
+func UpdateValidatorSet(store state.SimpleDB, seed []byte) (change []*abci.Validator, err error) {
 
 	// get the validators before update
 	candidates := GetCandidates()
 	candidates.Sort()
 
 	v1 := candidates.Validators()
-	v2 := candidates.updateVotingPower(store).Validators()
+	v2 := candidates.updateVotingPower(store, seed).Validators()
 
 	change = v1.validatorsChanged(v2)
 

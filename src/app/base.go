@@ -28,6 +28,7 @@ type BaseApp struct {
 	ethereum            *eth.Ethereum
 	AbsentValidators    []int32
 	ByzantineValidators []*abci.Evidence
+	Random              *abci.VrfRandom
 }
 
 // BaseApp extends StoreApp, and dispatch tx to different modules via TxDispatcher
@@ -211,6 +212,7 @@ func (app *BaseApp) BeginBlock(req abci.RequestBeginBlock) (res abci.ResponseBeg
 	app.AbsentValidators = req.AbsentValidators
 	app.logger.Info("BeginBlock", "absentvalidators", app.AbsentValidators)
 	app.ByzantineValidators = req.ByzantineValidators
+	app.Random = req.Header.Random
 
 	return abci.ResponseBeginBlock{}
 }
@@ -221,7 +223,7 @@ func (app *BaseApp) EndBlock(req abci.RequestEndBlock) (res abci.ResponseEndBloc
 	totalUsedGasFee := app.EthApp.GetTotalUsedGasFee()
 
 	// obtain validator set changes
-	diff, err := stake.UpdateValidatorSet(app.Append())
+	diff, err := stake.UpdateValidatorSet(app.Append(), app.Random.Seed)
 	if err != nil {
 		panic(err)
 	}

@@ -65,6 +65,8 @@ func GetOptions(path string) ([]Option, error) {
 	res = append(res, Option{sdk.ModuleNameBase, sdk.ChainKey, genDoc.ChainID})
 	res = append(res, Option{constant.ModuleNameStake, "max_vals", strconv.Itoa(int(genDoc.MaxVals))})
 	res = append(res, Option{constant.ModuleNameStake, "reserve_requirement_ratio", genDoc.ReserveRequirementRatio})
+	res = append(res, Option{constant.ModuleNameStake, "enable_hybrid_election", strconv.FormatBool(genDoc.EnableHybridElection)})
+	res = append(res, Option{constant.ModuleNameStake, "ticket_price", strconv.FormatUint(genDoc.TicketPrice, 10)})
 
 	// set validators
 	for _, val := range validators {
@@ -86,6 +88,8 @@ type FullDoc struct {
 	Validators              []json.RawMessage `json:"validators"`
 	MaxVals                 uint16            `json:"max_vals"`
 	ReserveRequirementRatio string            `json:"reserve_requirement_ratio"`
+	EnableHybridElection    bool              `json:"enable_hybrid_election"`
+	TicketPrice             uint64            `json:"ticket_price"`
 }
 
 // Doc - All genesis values
