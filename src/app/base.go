@@ -54,31 +54,30 @@ func (app *BaseApp) DeliverPtx(txBytes []byte) abci.ResponseDeliverTx {
 		return errors.DeliverResult(err)
 	}
 
-	// if isEthTx(tx) {
-	// 	if checkedTx, ok := app.checkedTx[tx.Hash()]; ok {
-	// 		tx = checkedTx
-	// 	} else {
-	// 		// force cache from of tx
-	// 		// TODO: Get chainID from config
-	// 		if _, err := types.Sender(types.NewEIP155Signer(big.NewInt(111)), tx); err != nil {
-	// 			app.logger.Debug("DeliverTx: Received invalid transaction", "tx", tx, "err", err)
-	// 			return errors.DeliverResult(err)
-	// 		}
-	// 	}
-	// 	resp := app.EthApp.DeliverTx(tx)
-	// 	app.logger.Debug("EthApp DeliverTx response: %v\n", resp)
-	// 	return resp
-	// }
-
 	//TODO: filter out non-txs (maybe for dpos vote)
-	app.EthApp.DeliverPtx(ptx)
+	response := app.EthApp.DeliverPtx(ptx)
+	if response.Code != abci.CodeTypeOK {
+		return response
+	}
 
-	// app.logger.Info("DeliverTx: Received valid transaction", "tx", ptx)
-	return abci.ResponseDeliverTx{Code: abci.CodeTypeOK}
-	/*
-		ctx := ttypes.NewContext(app.GetChainID(), app.WorkingHeight(), app.ethereum)
-		return app.deliverHandler(ctx, app.Append(), tx)
-	*/
+	txs := ptx.RawTxs()
+	for i := 0; i < len(txs); i++ {
+		tx, err := decodeTx(txs[i])
+		if err != nil {
+			app.logger.Error("DeliverTx: Received invalid transaction", "err", err)
+			return errors.DeliverResult(err)
+		}
+
+		if !isEthTx(tx) {
+			app.logger.Debug("DeliverTx: Received stake transaction", "tx", tx)
+			response = app.txDispatcher.DeliverTx(app, tx)
+			if response.Code != abci.CodeTypeOK {
+				break
+			}
+		}
+	}
+
+	return response
 }
 
 // DeliverTx - ABCI
@@ -88,6 +87,7 @@ func (app *BaseApp) DeliverTx(txBytes []byte) abci.ResponseDeliverTx {
 	if true {
 		return app.DeliverPtx(txBytes)
 	}
+
 	tx, err := decodeTx(txBytes)
 	if err != nil {
 		app.logger.Error("DeliverTx: Received invalid transaction", "err", err)
@@ -156,6 +156,7 @@ func (app *BaseApp) CheckTx(txBytes []byte, local bool) abci.ResponseCheckTx {
 	}
 	app.logger.Debug("CheckTx: Received valid transaction", "tx", tx)
 	//fmt.Println("CheckTx: Received valid transaction", "tx", tx.Nonce())
+	hash := tx.Hash()
 	if isEthTx(tx) {
 		resp := app.EthApp.CheckTx(tx)
 		app.logger.Debug("EthApp CheckTx response: %v\n", resp)
@@ -168,8 +169,6 @@ func (app *BaseApp) CheckTx(txBytes []byte, local bool) abci.ResponseCheckTx {
 			app.EthApp.backend.Ethereum().EventMux().Post(ethereum.TxPreEvent{Tx: tx, Local: local})
 		}
 		app.checkedTx[tx.Hash()] = tx
-		// return the hash
-		hash := tx.Hash()
 		return abci.ResponseCheckTx{0, hash[:], "", 0, 0}
 		// return sdk.NewCheck(tx.Hash(), 0, "").ToABCI()
 	} else if tx != nil {
@@ -179,6 +178,7 @@ func (app *BaseApp) CheckTx(txBytes []byte, local bool) abci.ResponseCheckTx {
 	app.logger.Debug("CheckTx: Received valid transaction", "tx", tx)
 
 	resp := app.txDispatcher.CheckTx(app, tx)
+	resp.Data = hash[:]
 	if !resp.IsErr() {
 		//Also need post Non-eth transaction
 		app.EthApp.backend.Ethereum().EventMux().Post(ethereum.TxPreEvent{Tx: tx, Local: local})

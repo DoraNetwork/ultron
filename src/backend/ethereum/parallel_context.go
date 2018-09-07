@@ -93,6 +93,10 @@ func isEthTx(tx *ethTypes.Transaction) bool {
 		tx.To() != nil
 }
 
+func (tx *ParalleledTransaction) RawTxs() [][]byte {
+	return tx.data.Txs
+}
+
 func (tx *ParalleledTransaction) Dag() *Dag {
 	return tx.data.Dag
 }
