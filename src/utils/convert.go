@@ -19,7 +19,7 @@ func GetPubKey(pubKeyStr string) (pk crypto.PubKey, err error) {
 		err = fmt.Errorf("must use --pubkey flag")
 		return
 	}
-	if len(pubKeyStr) != 64 { //if len(pkBytes) != 32 {
+	if len(pubKeyStr) != 66 { //64 for ED25519
 		err = fmt.Errorf("pubkey must be Ed25519 hex encoded string which is 64 characters long")
 		return
 	}
@@ -28,9 +28,10 @@ func GetPubKey(pubKeyStr string) (pk crypto.PubKey, err error) {
 	if err != nil {
 		return
 	}
-	var pkEd crypto.PubKeyEd25519
-	copy(pkEd[:], pkBytes[:])
-	pk = pkEd.Wrap()
+	// TODO: use parameter instead of hard coding
+	var pkInner crypto.PubKeySecp256k1
+	copy(pkInner[:], pkBytes[:])
+	pk = pkInner.Wrap()
 	return
 }
 
