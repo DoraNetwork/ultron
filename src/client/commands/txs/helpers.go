@@ -32,7 +32,8 @@ import (
 	"github.com/dora/ultron/commons"
 	ttypes "github.com/dora/ultron/types"
 	"github.com/dora/ultron/const"
-    tmTypes "github.com/tendermint/tendermint/types"
+	tmTypes "github.com/tendermint/tendermint/types"
+	"github.com/bgentry/speakeasy"
 )
 
 // Validatable represents anything that can be Validated
@@ -352,13 +353,12 @@ func stdinPassword() (string, error) {
 }
 
 func getPassword(prompt string) (pass string, err error) {
-	// if inputIsTty() {
-	// 	pass, err = speakeasy.Ask(prompt)
-	// } else {
-	// 	pass, err = stdinPassword()
-	// }
-	// return
-	return "123", nil
+	if inputIsTty() {
+		pass, err = speakeasy.Ask(prompt)
+	} else {
+		pass, err = stdinPassword()
+	}
+	return
 }
 
 func writeOutput(file string, d []byte) error {
