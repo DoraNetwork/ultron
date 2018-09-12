@@ -74,8 +74,9 @@ type TConfig struct {
 	ForceValidator         bool         `mapstructure:"force_validator"`
 	CompactBlock           bool         `mapstructure:"tm_compact_block"`
 	BuildFullBlock         bool         `mapstructure:"build_full_block"`	// use compact block build full block
-	UsePtxHash             bool         `mapstructure:"broadcast_ptx_hash"`
+	UsePtxHash             bool         `mapstructure:"broadcast_ptx_hash"`	// broadcast ptx with hash or ptx with tx
 	PtxCyclePeriod         uint         `mapstructure:"ptx_cycle_period"`
+	DisablePtx             bool         `mapstructure:"disable_ptx"`
 }
 
 func DefaultEthermintConfig() EthermintConfig {
@@ -183,6 +184,7 @@ ptx_detail_log = false
 tm_compact_block = true
 build_full_block = true
 broadcast_ptx_hash = true
+disable_ptx = false
 ptx_cycle_period = 1100
 force_validator = true
 `
@@ -197,4 +199,5 @@ func getDefaultMoniker() string {
 		moniker = "anonymous"
 	}
 	return moniker
+
 }
