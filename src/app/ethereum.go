@@ -24,6 +24,7 @@ import (
 const (
 	MinGasPrice = 2e9 // 2 Gwei
 )
+
 var checkNonce = true
 
 type FromTo struct {
@@ -79,7 +80,7 @@ func NewEthermintApplication(backend *backend.Backend,
 	}
 
 	testConfig, _ := emtConfig.ParseConfig()
-	if (testConfig != nil && testConfig.TestConfig.RepeatTxTest) {
+	if testConfig != nil && testConfig.TestConfig.RepeatTxTest {
 		checkNonce = false
 	}
 
@@ -124,6 +125,10 @@ func (app *EthermintApplication) Info(req abciTypes.RequestInfo) abciTypes.Respo
 		LastBlockHeight:  height.Int64(),
 		LastBlockAppHash: hash[:],
 	}
+}
+
+func (app *EthermintApplication) IsPtxEnabled() bool {
+	return app.backend.IsPtxEnabled()
 }
 
 // SetOption sets a configuration option
@@ -341,7 +346,7 @@ func (app *EthermintApplication) basicValidate(tx *ethTypes.Transaction) (*state
 	}
 
 	nonce := currentState.GetNonce(from)
-	if (checkNonce) {
+	if checkNonce {
 		if nonce != tx.Nonce() {
 			return nil, common.Address{}, 0,
 				abciTypes.ResponseCheckTx{

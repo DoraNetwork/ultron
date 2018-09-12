@@ -23,6 +23,7 @@ import (
 	emtTypes "github.com/dora/ultron/backend/types"
 	"github.com/dora/ultron/errors"
 	//"github.com/dora/ultron/const"
+	emtConfig "github.com/dora/ultron/node/config"
 )
 
 //----------------------------------------------------------------------
@@ -37,6 +38,8 @@ import (
 // instead of using a go-routine.
 
 type EthState struct {
+	ptxEnabled bool
+
 	ethereum       *eth.Ethereum
 	ethConfig      *eth.Config
 	txExecutor     *TransactionExecutor
@@ -48,23 +51,43 @@ type EthState struct {
 
 // After NewEthState, call SetEthereum and SetEthConfig.
 func NewEthState() *EthState {
+	ptxEnabled := true
+	testConfig, _ := emtConfig.ParseConfig()
+	if testConfig != nil {
+		if testConfig.TestConfig.DisablePtx {
+			ptxEnabled = false
+		}
+	}
+	var txExecutor *TransactionExecutor
+	if ptxEnabled {
+		txExecutor = newTransactionExecutor()
+	}
 	return &EthState{
 		ethereum:   nil, // set with SetEthereum
 		ethConfig:  nil, // set with SetEthConfig
-		txExecutor: newTransactionExecutor(),
+		ptxEnabled: ptxEnabled,
+		txExecutor: txExecutor,
 	}
+}
+
+func (es *EthState) IsPtxEnabled() bool {
+	return es.ptxEnabled
 }
 
 func (es *EthState) SetConfig(ethereum *eth.Ethereum, ethConfig *eth.Config) {
 	es.ethereum = ethereum
 	es.ethConfig = ethConfig
-	es.txExecutor.setConfig(es.ethereum, es.ethConfig)
-	es.stateProcessor = NewStateProcessor(ethereum.ApiBackend.ChainConfig(), ethereum.BlockChain(), ethereum.BlockChain().Engine())
-	ethereum.BlockChain().SetProcessor(es.stateProcessor)
+	if es.IsPtxEnabled() {
+		es.txExecutor.setConfig(es.ethereum, es.ethConfig)
+		es.stateProcessor = NewStateProcessor(ethereum.ApiBackend.ChainConfig(), ethereum.BlockChain(), ethereum.BlockChain().Engine())
+		ethereum.BlockChain().SetProcessor(es.stateProcessor)
+	}
 }
 
 func (es *EthState) UpdateProposer(isProposer bool) {
-	es.txExecutor.UpdateProposer(isProposer)
+	if es.IsPtxEnabled() {
+		es.txExecutor.UpdateProposer(isProposer)
+	}
 }
 
 func (es *EthState) CheckTx(tx *ethTypes.Transaction) abciTypes.ResponseCheckTx {
@@ -85,6 +108,9 @@ func (es *EthState) DeliverTx(tx *ethTypes.Transaction) abciTypes.ResponseDelive
 }
 
 func (es *EthState) DeliverPtx(ptx *ParalleledTransaction) abciTypes.ResponseDeliverTx {
+	if !es.IsPtxEnabled() {
+		return abciTypes.ResponseDeliverTx{Code: errors.ErrorTypeInternalErr}
+	}
 	es.mtx.Lock()
 	defer es.mtx.Unlock()
 
@@ -127,8 +153,9 @@ func (es *EthState) AccumulateRewards(strategy *emtTypes.Strategy) {
 func (es *EthState) Commit(receiver common.Address) (common.Hash, error) {
 	es.mtx.Lock()
 	defer es.mtx.Unlock()
-
-	es.work.state = es.txExecutor.commitState()
+	if es.IsPtxEnabled() {
+		es.work.state = es.txExecutor.commitState()
+	}
 	blockHash, err := es.work.commit(es.ethereum.BlockChain(), es.ethereum.ChainDb())
 	if err != nil {
 		return common.Hash{}, err
@@ -162,8 +189,9 @@ func (es *EthState) resetWorkState(receiver common.Address) error {
 
 	currentBlock := blockchain.CurrentBlock()
 	ethHeader := newBlockHeader(receiver, currentBlock, es.ethereum.ApiBackend.ChainConfig())
-	es.txExecutor.makeCurrent(es.ethereum, es.ethConfig, ethHeader, currentBlock, state)
-
+	if es.IsPtxEnabled() {
+		es.txExecutor.makeCurrent(es.ethereum, es.ethConfig, ethHeader, currentBlock, state)
+	}
 	es.work = workState{
 		ethereum:        es.ethereum,
 		ethConfig:       es.ethConfig,
@@ -185,7 +213,9 @@ func (es *EthState) UpdateHeaderWithTimeInfo(
 
 	es.mtx.Lock()
 	defer es.mtx.Unlock()
-	es.txExecutor.beginBlock()
+	if es.IsPtxEnabled() {
+		es.txExecutor.beginBlock()
+	}
 	es.work.updateHeaderWithTimeInfo(config, parentTime, numTx)
 }
 

@@ -83,6 +83,9 @@ func NewBackend(ctx *node.ServiceContext, ethConfig *eth.Config,
 	ethBackend.ResetState()
 	return ethBackend, nil
 }
+func (b *Backend) IsPtxEnabled() bool {
+	return b.es.IsPtxEnabled()
+}
 
 func (b *Backend) ResetState() (*state.ManagedState, error) {
 	currentState, err := b.Ethereum().BlockChain().State()

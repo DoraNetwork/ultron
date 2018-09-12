@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/cosmos/cosmos-sdk"
+	"github.com/cosmos/cosmos-sdk/errors"
 	"github.com/dora/ultron/backend/ethereum"
 	"github.com/dora/ultron/const"
 	ultronTypes "github.com/dora/ultron/errors"
 	"github.com/dora/ultron/modules/stake"
 	"github.com/dora/ultron/utils"
-	"github.com/cosmos/cosmos-sdk"
-	"github.com/cosmos/cosmos-sdk/errors"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth"
@@ -85,7 +85,7 @@ func (app *BaseApp) DeliverPtx(txBytes []byte) abci.ResponseDeliverTx {
 func (app *BaseApp) DeliverTx(txBytes []byte) abci.ResponseDeliverTx {
 	fmt.Println("deliver new ptx")
 	//TODO:workaround to route deliverTx to deliverPtx util tendermint deliverPtx logic ready
-	if true {
+	if app.EthApp.IsPtxEnabled() {
 		return app.DeliverPtx(txBytes)
 	}
 
