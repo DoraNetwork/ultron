@@ -2,7 +2,6 @@ package app
 
 import (
 	goerr "errors"
-	"fmt"
 	"math/big"
 
 	"github.com/cosmos/cosmos-sdk"
@@ -83,8 +82,6 @@ func (app *BaseApp) DeliverPtx(txBytes []byte) abci.ResponseDeliverTx {
 
 // DeliverTx - ABCI
 func (app *BaseApp) DeliverTx(txBytes []byte) abci.ResponseDeliverTx {
-	fmt.Println("deliver new ptx")
-	//TODO:workaround to route deliverTx to deliverPtx util tendermint deliverPtx logic ready
 	if app.EthApp.IsPtxEnabled() {
 		return app.DeliverPtx(txBytes)
 	}

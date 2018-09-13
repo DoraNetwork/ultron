@@ -359,7 +359,9 @@ func (ws *workState) commit(blockchain *core.BlockChain, db ethdb.Database) (com
 
 	// Save the block to disk.
 	// log.Info("Committing block", "stateHash", hashArray, "blockHash", blockHash)
-	ws.stateProcessor.Prepare(ws.state, ws.receipts, ws.allLogs)
+	if ws.stateProcessor != nil {
+		ws.stateProcessor.Prepare(ws.state, ws.receipts, ws.allLogs)
+	}
 	_, err = blockchain.InsertChain([]*ethTypes.Block{block})
 	if err != nil {
 		// log.Info("Error inserting ethereum block in chain", "err", err)

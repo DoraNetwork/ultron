@@ -184,7 +184,7 @@ ptx_detail_log = false
 tm_compact_block = true
 build_full_block = true
 broadcast_ptx_hash = true
-disable_ptx = false
+disable_ptx = true
 ptx_cycle_period = 1100
 force_validator = true
 `
