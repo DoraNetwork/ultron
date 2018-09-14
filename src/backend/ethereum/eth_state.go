@@ -117,7 +117,7 @@ func (es *EthState) DeliverPtx(ptx *ParalleledTransaction) abciTypes.ResponseDel
 	// fmt.Println("deliver ptx", ptx.Hash().Hex())
 	if es.txExecutor.IsValidator() {
 		wg := &sync.WaitGroup{}
-		ndag := &NotifiableDag{dag: ptx.Dag(), wg: wg}
+		ndag := &NotifiableDag{ptx: ptx, wg: wg}
 		wg.Add(1)
 		es.txExecutor.dispatchDagCh <- ndag
 		wg.Wait()

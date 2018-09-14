@@ -49,6 +49,7 @@ var firstDispatch bool = true
 //Performance Optimize Cases
 const OPT_REUSE_STATE bool = true
 const TEST_CONTRACT bool = true
+
 var TEST_VALIDATOR bool = true
 
 var timeTrace = NewTimeTrace()
@@ -73,7 +74,7 @@ type ParalleledTransactionData struct {
 }
 
 type NotifiableDag struct {
-	dag *Dag
+	ptx *ParalleledTransaction
 	wg  *sync.WaitGroup
 }
 
@@ -245,6 +246,7 @@ type TransactionExecutor struct {
 	executingTxsInfo map[common.Address]*threadContext
 	executingTxs     map[common.Hash]*ethTypes.Transaction
 	executedTxs      map[common.Hash]*ExecutedTransaction
+	txCache          map[common.Hash]*ethTypes.Transaction
 	threads          []*threadContext
 
 	txSub    *event.TypeMuxSubscription
@@ -636,15 +638,25 @@ func (te *TransactionExecutor) dispatchLoop() {
 			wg.Done()
 		case <-te.dispatchTxChain:
 			te.dispatchTx()
-		case txDag := <-te.dispatchDagCh:
+		case data := <-te.dispatchDagCh:
 			fmt.Println("process dag")
-			te.dispatchTxDag(txDag.dag)
+			te.cacheDagTxs(data.ptx)
+			te.dispatchTxDag(data.ptx.Dag())
 			te.ResumeThread()
 			te.waitForTxExecution() // make sure daq tx running over.
 			te.processOneCycle(true)
-			txDag.wg.Done()
+			data.wg.Done()
 		case <-te.quit:
 			return
+		}
+	}
+}
+
+func (te *TransactionExecutor) cacheDagTxs(ptx *ParalleledTransaction) {
+	for _, txBytes := range ptx.data.Txs {
+		tx, err := decodeTx(txBytes)
+		if err == nil {
+			te.txCache[tx.Hash()] = tx
 		}
 	}
 }
@@ -654,7 +666,10 @@ func (te *TransactionExecutor) dispatchTxDag(txDag *Dag) {
 	for _, nodes := range parallelNodes {
 		txs := []*ethTypes.Transaction{}
 		for _, node := range nodes {
-			tx := te.txPool.Get(node)
+			tx, _ := te.txCache[node]
+			if tx == nil {
+				tx = te.txPool.Get(node)
+			}
 			if tx == nil {
 				fmt.Printf("ERROR: Can not find Tx with hash code", node.Hex())
 				continue
@@ -1132,6 +1147,7 @@ func (te *TransactionExecutor) resetState() error {
 }
 
 func (te *TransactionExecutor) resetStateLocked() error {
+	te.txCache = make(map[common.Hash]*ethTypes.Transaction)
 	te.executedTxs = make(map[common.Hash]*ExecutedTransaction)
 	te.executingTxsInfo = make(map[common.Address]*threadContext)
 	te.currentCycleCtx = nil
