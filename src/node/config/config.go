@@ -77,6 +77,8 @@ type TConfig struct {
 	UsePtxHash             bool         `mapstructure:"broadcast_ptx_hash"`	// broadcast ptx with hash or ptx with tx
 	PtxCyclePeriod         uint         `mapstructure:"ptx_cycle_period"`
 	DisablePtx             bool         `mapstructure:"disable_ptx"`
+	ReplayTxInMempool      uint         `mapstructure:"replay_tx_mempool"`  // 0: disable, 1:same tx 2:loop tx ...
+	ReplayNumEpoch         int          `mapstructure:"replay_num_epoch"`
 }
 
 func DefaultEthermintConfig() EthermintConfig {
@@ -187,6 +189,8 @@ broadcast_ptx_hash = true
 disable_ptx = true
 ptx_cycle_period = 1100
 force_validator = true
+replay_tx_mempool = 0
+replay_num_epoch = 10000
 `
 
 var defaultMoniker = getDefaultMoniker()
