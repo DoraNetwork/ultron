@@ -104,6 +104,10 @@ func (es *EthState) DeliverTx(tx *ethTypes.Transaction) abciTypes.ResponseDelive
 	blockchain := es.ethereum.BlockChain()
 	chainConfig := es.ethereum.ApiBackend.ChainConfig()
 	blockHash := common.Hash{}
+	if !es.IsPtxEnabled() {
+		es.work.transactions = append(es.work.transactions, tx)
+		return abciTypes.ResponseDeliverTx{Code: abciTypes.CodeTypeOK}
+	}
 	return es.work.deliverTx(blockchain, es.ethConfig, chainConfig, blockHash, tx)
 }
 
