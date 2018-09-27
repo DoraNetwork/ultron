@@ -348,7 +348,7 @@ func (app *EthermintApplication) basicValidate(tx *ethTypes.Transaction) (*state
 
 	nonce := currentState.GetNonce(from)
 	if checkNonce {
-		if nonce != tx.Nonce() {
+		if nonce > tx.Nonce() {
 			return nil, common.Address{}, 0,
 				abciTypes.ResponseCheckTx{
 					Code: errors.ErrorTypeBadNonce,
