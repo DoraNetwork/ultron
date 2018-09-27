@@ -772,7 +772,7 @@ func (te *TransactionExecutor) dispatchTx() []*ethTypes.Transaction {
 			continue
 		}
 
-		from, _ := tx.From(te.txPool.Signer())
+		from, _ := tx.From(te.txPool.Signer(), false)
 		to := *tx.To()
 		if thread, ok := te.executingTxsInfo[from]; !TEST_CONTRACT && ok {
 			thread.queueTx(tx)
