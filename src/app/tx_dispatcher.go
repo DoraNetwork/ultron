@@ -88,7 +88,7 @@ func (td *TxDispatcher) DeliverTx(app *BaseApp, tx *ethTypes.Transaction) abci.R
 		signer = ethTypes.NewEIP155Signer(tx.ChainId())
 	}
 
-	from, err := ethTypes.Sender(signer, tx)
+	from, err := tx.From(signer)
 	if err != nil {
 		return errors.DeliverResult(err)
 	}

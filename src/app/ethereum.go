@@ -308,7 +308,8 @@ func (app *EthermintApplication) basicValidate(tx *ethTypes.Transaction) (*state
 	}
 
 	// Make sure the transaction is signed properly
-	from, err := ethTypes.Sender(signer, tx)
+	// from, err := ethTypes.Sender(signer, tx)
+	from, err := tx.From(signer)
 	if err != nil {
 		// TODO: Add errors.ErrorTypeInvalidSignature ?
 		return nil, common.Address{}, 0,

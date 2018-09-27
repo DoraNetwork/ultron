@@ -771,22 +771,9 @@ func (te *TransactionExecutor) dispatchTx() []*ethTypes.Transaction {
 			newTxs.Pop()
 			continue
 		}
-		// TODO:check from and to address
-		// We use the eip155 signer regardless of the current hf.
-		// from, _ := ethTypes.Sender(te.signer, tx)
-		// to := tx.To()
-		msg, err := tx.AsMessage(te.signer)
-		if err != nil {
-			//TODO:handle exception
-			fmt.Println("get transaction message error", err)
-			continue
-		}
-		from := msg.From()
-		var to common.Address
-		tmp := msg.To()
-		if tmp != nil {
-			to = *tmp
-		}
+
+		from, _ := tx.From(te.txPool.Signer())
+		to := *tx.To()
 		if thread, ok := te.executingTxsInfo[from]; !TEST_CONTRACT && ok {
 			thread.queueTx(tx)
 		} else if thread, ok := te.executingTxsInfo[to]; !TEST_CONTRACT && ok {
