@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"sync"
 	// "runtime"
 	// "runtime/pprof"
 	"flag"
@@ -245,7 +246,7 @@ func BenchmarkBasicTxHash(t *testing.B) {
 	// defer srv.tmNode.Stop()
 	key, _ := crypto.GenerateKey()
 	tx := transaction(0, gaslimit, key, to, defaultAmount)
-	signedTx := makeTransaction(srv, &from, "yiya.io", tx)
+	signedTx := makeTransaction(srv, &from, "dora.io", tx)
 
 	t.ResetTimer()
 	for i := 0; i < t.N; i++ {
@@ -281,7 +282,7 @@ func BenchmarkSignBasicTx(t *testing.B) {
 		// time.Sleep(time.Second)
 		key, _ := crypto.GenerateKey()
 		tx := transaction(0, gaslimit, key, to, defaultAmount)
-		makeTransaction(srv, &from, "yiya.io", tx)
+		makeTransaction(srv, &from, "dora.io", tx)
 	}
 }
 
@@ -303,7 +304,7 @@ func BenchmarkAddBasicTx(t *testing.B) {
 		key, _ := crypto.GenerateKey()
 		tx := transaction(nonce, gaslimit, key, to, defaultAmount)
 		signedTx := makeTransaction(srv, &accounts[i].Address, accounts[i].PassPhrase, tx)
-		signedTx.From(pool.Signer())
+		// signedTx.From(pool.Signer(), true)
 		txs = append(txs, signedTx)
 		queuedTxHash = append(queuedTxHash, signedTx.Hash())
 	}
@@ -323,6 +324,23 @@ func BenchmarkAddBasicTx(t *testing.B) {
 	}
 }
 
+func addTxsToPoolAsync(t *testing.T, pool *core.TxPool, txs types.Transactions) *sync.WaitGroup {
+	wg := sync.WaitGroup{}
+	for i := 0; i < len(txs); i++ {
+		wg.Add(1)
+		tx := txs[i]
+		go func () {
+			// frmAddr, _ :=tx.From(pool.Signer())
+			// fmt.Println("addTxsToPoolAsync  from", frmAddr.Hex(), " to", tx.To().Hex())
+			if err := pool.AddRemote(tx); err != nil {
+				t.Error("Meet error", err)
+			}
+			wg.Done()
+		}()
+	}
+	return &wg
+}
+
 func TestAdd4KBasicTx(t *testing.T) {
 	srv := initSrv
 	txCnt := 4096
@@ -335,13 +353,16 @@ func TestAdd4KBasicTx(t *testing.T) {
 	state := pool.State()
 	queuedTxHash := []common.Hash{}
 	txs := types.Transactions{}
+	fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Prepare Tx")
+
 	for i := 0; i < txCnt; i++ {
 		// time.Sleep(time.Second)
 		nonce := state.GetNonce(accounts[i].Address)
 		key, _ := crypto.GenerateKey()
 		tx := transaction(nonce, gaslimit, key, to, defaultAmount)
 		signedTx := makeTransaction(srv, &accounts[i].Address, accounts[i].PassPhrase, tx)
-		signedTx.From(pool.Signer())
+		// signedTx.From(pool.Signer())
+		// fmt.Println("signTx  from", frmAddr.Hex(), " to", tx.To().Hex())
 		txs = append(txs, signedTx)
 		queuedTxHash = append(queuedTxHash, signedTx.Hash())
 	}
@@ -349,14 +370,16 @@ func TestAdd4KBasicTx(t *testing.T) {
 	start := time.Now()
 	fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Start time:", start)
 	t.Log("Start time:", start)
-	for i := 0; i < txCnt; i++ {
-		if err := pool.AddRemote(txs[i]); err != nil {
-			t.Error("Meet error", err)
-		}
-	}
+	// for i := 0; i < txCnt; i++ {
+	// 	if err := pool.AddRemote(txs[i]); err != nil {
+	// 		t.Error("Meet error", err)
+	// 	}
+	// }
+	wg := addTxsToPoolAsync(t, pool, txs)
+	wg.Wait()
 	end := time.Now()
 	t.Log("End time:", end)
-	t.Log("Add 5000 tx costs :", end.Sub(start))
+	t.Log("Add ", txCnt, " tx costs :", end.Sub(start))
 
 	for idx, hash := range queuedTxHash {
 		if err := wait(hash, srv.backend.Ethereum()); err != nil {
@@ -374,7 +397,7 @@ func BenchmarkNewAccount(t *testing.B) {
 		// seed := time.Now()
 		// time.Sleep(time.Second)
 		//newAccount(srv, seed.Format("%s"))
-		newAccount(srv, "yiya.io")
+		newAccount(srv, "dora.io")
 	}
 }
 
@@ -413,7 +436,7 @@ func TestGenerateExtendedGenesis(t *testing.T) {
 	initBalance := genesis.Alloc[common.HexToAddress("0x0413c6cc6d4381489815b35118f6fa3a1d45a3f9")]
 	testAccounts := []*TestAccount{}
 	for i := 0; i < total; i++ {
-		acc, _ := newAccount(srv, "yiya.io")
+		acc, _ := newAccount(srv, "dora.io")
 		if _, ok := genesis.Alloc[acc.Address]; !ok {
 			genesis.Alloc[acc.Address] = initBalance
 			testAccounts = append(testAccounts, acc)
@@ -509,8 +532,8 @@ func TestBasicTx(t *testing.T) {
 	for i := 0; i < 1; i++ {
 		key, _ := crypto.GenerateKey()
 		tx := transaction(nonce+(uint64)(i), gaslimit, key, to, defaultAmount)
-		signedTx := makeTransaction(srv, &from, "yiya.io", tx)
-		signedTx.From(pool.Signer())
+		signedTx := makeTransaction(srv, &from, "dora.io", tx)
+		// signedTx.From(pool.Signer(), true)
 		if err := pool.AddRemote(signedTx); err != nil {
 			t.Error("Meet error", err)
 		}
@@ -624,7 +647,7 @@ func normalTransferInitialFund(srv *Services, accounts []common.Address, initFun
 		// currentState = pool.State()
 		key, _ := crypto.GenerateKey()
 		tx := transaction(nonce+(uint64)(i), gaslimit, key, acc, initFund)
-		signedTx := makeTransaction(srv, &from, "yiya.io", tx)
+		signedTx := makeTransaction(srv, &from, "dora.io", tx)
 		if err := pool.AddRemote(signedTx); err != nil {
 			return err
 		}
@@ -688,7 +711,7 @@ func fastTransferInitialFundImpl(srv *Services, outAccounts []*TestAccount, idx 
 
 func fastTransferInitialFund(srv *Services, accounts []*TestAccount, initFund *big.Int) error {
 	transFund := initFund.Mul(initFund, big.NewInt((int64(len(accounts)))))
-	simpleTransfer(srv, from, "yiya.io", accounts[0].Address, transFund, true)
+	simpleTransfer(srv, from, "dora.io", accounts[0].Address, transFund, true)
 	return fastTransferInitialFundImpl(srv, accounts, 1, transFund)
 }
 
@@ -812,7 +835,7 @@ func TestBasicContract(t *testing.T) {
 
 	// step 1. deploy a new smart contract
 	tx := newContract(nonceFrom, gaslimit, key, compiledContract)
-	signedTx := makeTransaction(srv, &from, "yiya.io", tx)
+	signedTx := makeTransaction(srv, &from, "dora.io", tx)
 	if err := pool.AddRemote(signedTx); err != nil {
 		t.Error("Meet error", err)
 	}
@@ -831,7 +854,7 @@ func TestBasicContract(t *testing.T) {
 	key, _ = crypto.GenerateKey()
 	nonceFrom++
 	tx = callContract(nonceFrom, gaslimit, key, contractAddr, deposit, big.NewInt(111), nil)
-	signedTx = makeTransaction(srv, &from, "yiya.io", tx)
+	signedTx = makeTransaction(srv, &from, "dora.io", tx)
 	if err := pool.AddRemote(signedTx); err != nil {
 		t.Fatal("Meet error", err)
 	}
@@ -843,7 +866,7 @@ func TestBasicContract(t *testing.T) {
 
 	key, _ = crypto.GenerateKey()
 	tx = callContract(nonceTo, gaslimit, key, contractAddr, deposit, big.NewInt(222), nil)
-	signedTx = makeTransaction(srv, &to, "yiya.io", tx)
+	signedTx = makeTransaction(srv, &to, "dora.io", tx)
 	if err := pool.AddRemote(signedTx); err != nil {
 		t.Fatal("Meet error", err)
 	}
@@ -861,7 +884,7 @@ func TestBasicContract(t *testing.T) {
 	args := common.Hex2Bytes("000000000000000000000000000000000000000000000000000000000000000A")
 	nonceTo++
 	tx = callContract(nonceTo, gaslimit, key, contractAddr, withdraw, nil, args)
-	signedTx = makeTransaction(srv, &to, "yiya.io", tx)
+	signedTx = makeTransaction(srv, &to, "dora.io", tx)
 	if err := pool.AddRemote(signedTx); err != nil {
 		t.Fatal("Meet error", err)
 	}
@@ -877,7 +900,7 @@ func TestBasicContract(t *testing.T) {
 	key, _ = crypto.GenerateKey()
 	nonceFrom++
 	tx = callContract(nonceFrom, gaslimit, key, contractAddr, close, nil, nil)
-	signedTx = makeTransaction(srv, &from, "yiya.io", tx)
+	signedTx = makeTransaction(srv, &from, "dora.io", tx)
 	if err := pool.AddRemote(signedTx); err != nil {
 		t.Error("Meet error", err)
 	}
@@ -964,4 +987,75 @@ func stateDBCommit(srv *Services, accounts []*TestAccount, txNum int) (*state.St
 	}
 	_, err := stateDB.CommitTo(db, false)
 	return stateDB, err
+}
+
+func stateDBIntermediateRoot(srv *Services, txNum int) ([]common.Hash, error) {
+	bc := srv.backend.Ethereum().BlockChain()
+	stateDB, _ := bc.State()
+	receipts := make([]common.Hash, txNum)
+
+	for j := 0; j < txNum; j++ {
+		// from change
+		stateDB.AddBalance(from, defaultAmount)
+		// to change
+		stateDB.AddBalance(to, defaultAmount)
+		receipts[j] = stateDB.IntermediateRoot(true)
+	}
+	return receipts, nil
+}
+
+func TestTrieHash(t *testing.T) {
+	srv := initSrv
+
+	txNum := 26000
+	start := time.Now()
+	t.Log("Begin time:", start)
+	receipts, _:= stateDBIntermediateRoot(srv, txNum)
+	end := time.Now()
+	t.Log("End time:", end)
+	t.Log("Calc", txNum, " tx's receipt root costs :", end.Sub(start))
+
+	for idx, receipt := range receipts {
+		fmt.Println("receipt ", receipt.Hex())
+		if idx >= 10 {
+			break
+		}
+	}
+}
+
+func Test4KSimpleTx(t *testing.T) {
+	srv := initSrv
+	txCnt := 4000
+
+	pool := srv.backend.Ethereum().TxPool()
+	state := pool.State()
+	queuedTxHash := []common.Hash{}
+	txs := types.Transactions{}
+	for i := 0; i < txCnt; i++ {
+		nonce := state.GetNonce(from)
+		key, _ := crypto.GenerateKey()
+		tx := transaction(nonce + (uint64)(i), gaslimit, key, to, defaultAmount)
+		signedTx := makeTransaction(srv, &to, "dora.io", tx)
+		// signedTx.From(pool.Signer())
+		txs = append(txs, signedTx)
+		queuedTxHash = append(queuedTxHash, signedTx.Hash())
+	}
+
+	start := time.Now()
+	fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Start time:", start)
+	t.Log("Start time:", start)
+	for i := 0; i < txCnt; i++ {
+		if err := pool.AddRemote(txs[i]); err != nil {
+			t.Error("Meet error", err)
+		}
+	}
+	end := time.Now()
+	t.Log("End time:", end)
+	t.Log("Add ", txCnt, " tx costs :", end.Sub(start))
+
+	for idx, hash := range queuedTxHash {
+		if err := wait(hash, srv.backend.Ethereum()); err != nil {
+			t.Error("Meet error:", err, "Idx :=", idx)
+		}
+	}
 }
