@@ -37,8 +37,8 @@ import (
 var (
 	rootDir         = "/tmp/.ultron"          //init folder first
 	accountInfoDB   = "simple-test-info.json" // a file to save some test info
-	to              = common.HexToAddress("0x0413c6cc6d4381489815b35118f6fa3a1d45a3f9")
-	from            = common.HexToAddress("0xcd89dde88bc4e308e436f9f696454840ff795d84")
+	to              = common.HexToAddress("0x4806202cd62b03be5f6681827d5329409c1e0cdd")
+	from            = common.HexToAddress("0x70ade99ba1966cab6584e90220b94154d4b58eb1")
 	defaultAmount   = big.NewInt(1)
 	gasprice        = big.NewInt(2.5e9) // should be higher than 2gwei (asked by ethermint)
 	gaslimit        = big.NewInt(5e6)
@@ -419,11 +419,10 @@ func TestGenerateExtendedGenesis(t *testing.T) {
 		"difficulty": "0x40",
 		"gasLimit": "0xF00000000",
 		"alloc": {
-			"0x0413c6cc6d4381489815b35118f6fa3a1d45a3f9": { "balance": "10000000000000000000000000000000000" },
-			"0x1780858a3eb6f491adb0b30cc5218746b5f9442c": { "balance": "10000000000000000000000000000000000" },
-			"0xfa5787ff486c4093a2f6b6708d28e8e8da6d7957": { "balance": "10000000000000000000000000000000000" },
-			"0xc6fc3cfcfd5b8c6ffa8d0b77f8611f001b79717b": { "balance": "10000000000000000000000000000000000" },
-			"0xcd89dde88bc4e308e436f9f696454840ff795d84": { "balance": "10000000000000000000000000000000000" }
+			"0xedac2dfcfe06f30920219221eccc79a300a8d7e1": { "balance": "10000000000000000000000000000000000" },
+			"0x4806202cd62b03be5f6681827d5329409c1e0cdd": { "balance": "10000000000000000000000000000000000" },
+			"0x70ade99ba1966cab6584e90220b94154d4b58eb1": { "balance": "10000000000000000000000000000000000" },
+			"0xc2816eaf7e9804dc0804b6b33ab3e45b7d1f9823": { "balance": "10000000000000000000000000000000000" }
 		}
 	}`)
 
@@ -433,7 +432,7 @@ func TestGenerateExtendedGenesis(t *testing.T) {
 		t.Fatal("Meet error: ", err)
 	}
 
-	initBalance := genesis.Alloc[common.HexToAddress("0x0413c6cc6d4381489815b35118f6fa3a1d45a3f9")]
+	initBalance := genesis.Alloc[common.HexToAddress("0xedac2dfcfe06f30920219221eccc79a300a8d7e1")]
 	testAccounts := []*TestAccount{}
 	for i := 0; i < total; i++ {
 		acc, _ := newAccount(srv, "dora.io")
@@ -529,7 +528,7 @@ func TestBasicTx(t *testing.T) {
 	queuedTxHash := []common.Hash{}
 	queuedTx := types.Transactions{}
 	t.Log("start")
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 5; i++ {
 		key, _ := crypto.GenerateKey()
 		tx := transaction(nonce+(uint64)(i), gaslimit, key, to, defaultAmount)
 		signedTx := makeTransaction(srv, &from, "dora.io", tx)
