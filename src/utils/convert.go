@@ -14,25 +14,36 @@ func RemoveFromSlice(slice []interface{}, i int) []interface{} {
 }
 
 func GetPubKey(pubKeyStr string) (pk crypto.PubKey, err error) {
-
 	if len(pubKeyStr) == 0 {
 		err = fmt.Errorf("must use --pubkey flag")
 		return
 	}
-	if len(pubKeyStr) != 66 { //64 for ED25519
-		err = fmt.Errorf("pubkey must be Ed25519 hex encoded string which is 64 characters long")
+	if len(pubKeyStr) == 66 { //64 for ED25519
+		var pkBytes []byte
+		pkBytes, err = hex.DecodeString(pubKeyStr)
+		if err != nil {
+			return
+		}
+		// TODO: use parameter instead of hard coding
+		var pkInner crypto.PubKeySecp256k1
+		copy(pkInner[:], pkBytes[:])
+		pk = pkInner.Wrap()
+		return
+	} else if len(pubKeyStr) == 64 {
+		var pkBytes []byte
+		pkBytes, err = hex.DecodeString(pubKeyStr)
+		if err != nil {
+			return
+		}
+		// TODO: use parameter instead of hard coding
+		var pkInner crypto.PubKeyEd25519
+		copy(pkInner[:], pkBytes[:])
+		pk = pkInner.Wrap()
+		return
+	} else {
+		err = fmt.Errorf("PubKey len should be either 64 or 66, not", len(pubKeyStr))
 		return
 	}
-	var pkBytes []byte
-	pkBytes, err = hex.DecodeString(pubKeyStr)
-	if err != nil {
-		return
-	}
-	// TODO: use parameter instead of hard coding
-	var pkInner crypto.PubKeySecp256k1
-	copy(pkInner[:], pkBytes[:])
-	pk = pkInner.Wrap()
-	return
 }
 
 func ParseFloat(str string) float64 {
