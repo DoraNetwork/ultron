@@ -97,7 +97,7 @@ func (app *BaseApp) DeliverTx(txBytes []byte) abci.ResponseDeliverTx {
 			tx = checkedTx
 		} else {
 			// FIXME: Need to modify ethereum backend to obtain chain ID
-			if _, err := types.Sender(types.NewEIP155Signer(constant.ChainId), tx); err != nil {
+			if _, err := tx.From(types.NewEIP155Signer(constant.ChainId), false); err != nil {
 				app.logger.Debug("DeliverTx: Received invalid transaction", "tx", tx, "err", err)
 				return errors.DeliverResult(err)
 			}
