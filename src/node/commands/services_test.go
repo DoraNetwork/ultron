@@ -1,14 +1,10 @@
 package commands
 
 import (
-	"sync"
-	// "runtime"
-	// "runtime/pprof"
-	"flag"
-	// "bytes"
-	// "encoding/hex"
+	"bytes"
 	"crypto/ecdsa"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"math"
@@ -16,13 +12,13 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/dora/ultron/app"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
-	ethMath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -30,19 +26,6 @@ import (
 	"github.com/ethereum/go-ethereum/eth"
 	"github.com/spf13/viper"
 	"github.com/tendermint/tmlibs/cli"
-	// "github.com/ethereum/go-ethereum/internal/ethapi"
-	"github.com/dora/ultron/app"
-)
-
-var (
-	rootDir         = "/tmp/.ultron"          //init folder first
-	accountInfoDB   = "simple-test-info.json" // a file to save some test info
-	to              = common.HexToAddress("0x4806202cd62b03be5f6681827d5329409c1e0cdd")
-	from            = common.HexToAddress("0x70ade99ba1966cab6584e90220b94154d4b58eb1")
-	defaultAmount   = big.NewInt(1)
-	gasprice        = big.NewInt(2.5e9) // should be higher than 2gwei (asked by ethermint)
-	gaslimit        = big.NewInt(5e6)
-	genesisAccounts = 128
 )
 
 type TestService struct {
@@ -52,6 +35,10 @@ type TestService struct {
 }
 
 var (
+	rootDir         = "/tmp/.ultron"          //init folder first
+	to              = common.HexToAddress("0x4806202cd62b03be5f6681827d5329409c1e0cdd")
+	from            = common.HexToAddress("0x70ade99ba1966cab6584e90220b94154d4b58eb1")
+
 	// Define args flags.
 	pAccountNum = flag.Int("testAccountNumber", genesisAccounts,  "Generate account number.")
 	pTxScale = flag.Int("testTxScale", genesisAccounts * 2, "Scale of txs")
@@ -106,11 +93,6 @@ func NewTestService() (*Services, error) {
 	}
 
 	return startServices(rootDir, storeApp)
-}
-
-func transaction(nonce uint64, gaslimit *big.Int, key *ecdsa.PrivateKey, to common.Address, amount *big.Int) *types.Transaction {
-	tx := types.NewTransaction(nonce, to, amount, gaslimit, gasprice, nil)
-	return tx
 }
 
 /**
@@ -185,14 +167,6 @@ func newContract(nonce uint64, gaslimit *big.Int, key *ecdsa.PrivateKey, contrac
 	return contract
 }
 
-func getTransactionReceipt(txHash common.Hash, eth *eth.Ethereum) (*types.Receipt, error) {
-	receipt := core.GetReceipt(eth.ChainDb(), txHash)
-	if receipt == nil {
-		return nil, fmt.Errorf("Receipt not found for transaction" + txHash.Hex())
-	}
-	return receipt, nil
-}
-
 func getContractAddress(txHash common.Hash, eth *eth.Ethereum) (common.Address, error) {
 	receipt, err := getTransactionReceipt(txHash, eth)
 	if (err != nil || receipt.ContractAddress == common.Address{}) {
@@ -210,35 +184,6 @@ func callContract(nonce uint64, gaslimit *big.Int, key *ecdsa.PrivateKey, contra
 			types.HomesteadSigner{},
 			key)
 	return contractCallTx
-}
-
-func makeTransaction(s *Services, from *common.Address, passwd string, tx *types.Transaction) *types.Transaction {
-	// Look up the wallet containing the requested signer
-	am := s.backend.Ethereum().AccountManager()
-
-	account := accounts.Account{Address: *from}
-
-	wallet, _ := am.Find(account)
-
-	chainID := big.NewInt((int64)(config.EMConfig.EthChainId))
-	signed, _ := wallet.SignTxWithPassphrase(account, passwd, tx, chainID)
-	return signed
-}
-
-func wait(hash common.Hash, eth *eth.Ethereum) error {
-	repeat := 6
-	_, err := getTransactionReceipt(hash, eth)
-	for err != nil && repeat > 0 {
-		time.Sleep(5 * time.Second)
-		_, err = getTransactionReceipt(hash, eth)
-		repeat--
-	}
-
-	if repeat == 0 {
-		return fmt.Errorf("ERROR: wait tx " + hash.Hex() + " timeout!")
-	}
-
-	return nil
 }
 
 func BenchmarkBasicTxHash(t *testing.B) {
@@ -271,6 +216,7 @@ func newAccount(s *Services, password string) (*TestAccount, error) {
 
 var (
 	initSrv, _ = NewTestService()
+	// initSrv = new(Services)
 )
 
 func BenchmarkSignBasicTx(t *testing.B) {
@@ -289,7 +235,7 @@ func BenchmarkSignBasicTx(t *testing.B) {
 func BenchmarkAddBasicTx(t *testing.B) {
 	srv := initSrv
 
-	accounts, err := initAccountsForPtxTest(srv, t.N)
+	accounts, err := initAccountsForPtxTest(srv, rootDir, t.N)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,9 +278,8 @@ func addTxsToPoolAsync(t *testing.T, pool *core.TxPool, txs types.Transactions) 
 		go func () {
 			// frmAddr, _ :=tx.From(pool.Signer())
 			// fmt.Println("addTxsToPoolAsync  from", frmAddr.Hex(), " to", tx.To().Hex())
-			if err := pool.AddRemote(tx); err != nil {
-				t.Error("Meet error", err)
-			}
+			err := pool.AddRemote(tx)
+			checkErrs(t, err)
 			wg.Done()
 		}()
 	}
@@ -344,47 +289,106 @@ func addTxsToPoolAsync(t *testing.T, pool *core.TxPool, txs types.Transactions) 
 func TestAdd4KBasicTx(t *testing.T) {
 	srv := initSrv
 	txCnt := 4096
-	accounts, err := initAccountsForPtxTest(srv, txCnt)
+	accounts, err := initAccountsForPtxTest(srv, rootDir, txCnt)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	pool := srv.backend.Ethereum().TxPool()
 	state := pool.State()
+	remoteClientCnt := 16
+	httpClients := createRemoteClientConnections(remoteClientCnt)
+	fmt.Println("!!!!!!!!!!!!!!!!!! create", len(httpClients), "remote clients.")
+
 	queuedTxHash := []common.Hash{}
 	txs := types.Transactions{}
+	txsBytes := [][]byte{}
 	fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Prepare Tx")
-
 	for i := 0; i < txCnt; i++ {
 		// time.Sleep(time.Second)
 		nonce := state.GetNonce(accounts[i].Address)
 		key, _ := crypto.GenerateKey()
-		tx := transaction(nonce, gaslimit, key, to, defaultAmount)
+		tx := transaction(nonce, gaslimit, key, accounts[(i + 2) % txCnt].Address, defaultAmount)
 		signedTx := makeTransaction(srv, &accounts[i].Address, accounts[i].PassPhrase, tx)
 		// signedTx.From(pool.Signer())
 		// fmt.Println("signTx  from", frmAddr.Hex(), " to", tx.To().Hex())
 		txs = append(txs, signedTx)
+		buf := new(bytes.Buffer)
+		signedTx.EncodeRLP(buf)
+		txsBytes = append(txsBytes, buf.Bytes())
 		queuedTxHash = append(queuedTxHash, signedTx.Hash())
 	}
 
 	start := time.Now()
 	fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Start time:", start)
-	t.Log("Start time:", start)
+	// t.Log("Start time:", start)
 	// for i := 0; i < txCnt; i++ {
 	// 	if err := pool.AddRemote(txs[i]); err != nil {
 	// 		t.Error("Meet error", err)
 	// 	}
 	// }
-	wg := addTxsToPoolAsync(t, pool, txs)
+	// wg := addTxsToPoolAsync(t, pool, txs)
+	wg := addTxsToHTTPClientAsync(httpClients, txsBytes)
 	wg.Wait()
 	end := time.Now()
 	t.Log("End time:", end)
 	t.Log("Add ", txCnt, " tx costs :", end.Sub(start))
+	fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Add ", txCnt, " tx in", remoteClientCnt, "costs :", end.Sub(start))
 
 	for idx, hash := range queuedTxHash {
 		if err := wait(hash, srv.backend.Ethereum()); err != nil {
 			t.Error("Meet error:", err, "Idx :=", idx)
 		}
+	}
+
+	// time.Sleep(5 * time.Second)
+}
+
+func TestLoopAddBasicTx(t *testing.T) {
+	srv := initSrv
+	txCnt := 4096
+	accounts, err := initAccountsForPtxTest(srv, rootDir, txCnt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	remoteClientCnt := 1
+	httpClients := createRemoteClientConnections(remoteClientCnt)
+	fmt.Println("!!!!!!!!!!!!!!!!!! create", len(httpClients), "remote clients.")
+
+	txsCh, _ := prepareTXsAsync(srv, txCnt, accounts)
+
+	
+	for i := 0; i < 2; i++ {
+		// txsBytes, _, queuedTxHash, err := prepareTXs(txCnt, offset++, accounts)
+		start := time.Now()
+		fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Start time:", start)
+		t.Log("Start time:", start)
+		
+		queuedTxHash := []common.Hash{}
+		txsBytes := [][]byte{}
+		select {
+		case txs := <-txsCh :
+			fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Tx Received!")
+			for _, signedTx := range txs {
+				buf := new(bytes.Buffer)
+				signedTx.EncodeRLP(buf)
+				txsBytes = append(txsBytes, buf.Bytes())
+				queuedTxHash = append(queuedTxHash, signedTx.Hash())
+				// fmt.Println("****************************** Send Tx", signedTx.Hash().Hex())
+			}
+			start = time.Now()
+			fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ", len(txsBytes), "Tx Received!")
+			wg := addTxsToHTTPClientAsync(httpClients, txsBytes)
+			wg.Wait()
+		}
+
+		end := time.Now()
+		t.Log("End time:", end)
+		t.Log("Add ", txCnt, " tx costs :", end.Sub(start))
+		fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Add ", txCnt, " tx in", remoteClientCnt, "costs :", end.Sub(start))
+	
+		checkErrs(t, waitTxsAsync(srv, queuedTxHash))
 	}
 }
 
@@ -454,7 +458,7 @@ func TestGenerateLargeScaleTxs(t *testing.T) {
 	srv := initSrv
 	// defer srv.tmNode.Stop()
 
-	accounts, err := initAccountsForPtxTest(srv, accountNum)
+	accounts, err := initAccountsForPtxTest(srv, rootDir, accountNum)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -562,29 +566,6 @@ func initAccountPool(s *Services, n int, offset int) []*TestAccount {
 	}
 
 	return accounts
-}
-
-type TestAccount struct {
-	Address    common.Address `json:"address"`
-	Balance    *big.Int       `json:"balance"`
-	PassPhrase string         `json:"password"`
-	Url        string         `json:"path"`
-}
-
-func loadTestAccountsFromFile(testDB string) ([]*TestAccount, bool) {
-	dbName := path.Join(rootDir, testDB)
-	dat, err := ioutil.ReadFile(dbName)
-	if err != nil {
-		return nil, false
-	}
-
-	accounts := []*TestAccount{}
-	err = json.Unmarshal(dat, &accounts)
-	if err != nil {
-		return nil, false
-	}
-
-	return accounts, true
 }
 
 func loadLargeScaleTxsFile(testDB string) (types.Transactions, bool) {
@@ -714,65 +695,11 @@ func fastTransferInitialFund(srv *Services, accounts []*TestAccount, initFund *b
 	return fastTransferInitialFundImpl(srv, accounts, 1, transFund)
 }
 
-func updateTestAccountBalance(srv *Services, accounts []*TestAccount) ([]*TestAccount, error) {
-	pool := srv.backend.Ethereum().TxPool()
-	currentState := pool.State()
-	for i := 0; i < len(accounts); i++ {
-		accounts[i].Balance = currentState.GetBalance(accounts[i].Address)
-		if accounts[i].Balance.Cmp(big.NewInt(0)) == 0 {
-			return nil, fmt.Errorf("ERROR: generated accounts[%d].Balance == 0, please check transfer status!", i)
-		}
-	}
-	return accounts, nil
-}
-
-func nextPower2(v int) int {
-	v--
-	v |= v >> 1
-	v |= v >> 2
-	v |= v >> 4
-	v |= v >> 8
-	v |= v >> 16
-	v++
-	return v
-}
-
-func initAccountsForPtxTest(srv *Services, n int) ([]*TestAccount, error) {
-	m := n
-	if (n & (n - 1)) != 0 {
-		// return nil, fmt.Errorf("ERROR: Number of accounts %d is not power of 2!", n)
-		m = nextPower2(n)
-		fmt.Println("Init account should be power of 2, round to ", m)
-	}
-
-	// init n accounts
-	testAccounts, ok := loadTestAccountsFromFile(accountInfoDB)
-	if ok && len(testAccounts) >= n {
-		// update balance
-		_, err := updateTestAccountBalance(srv, testAccounts)
-		return testAccounts[:n], err
-	}
-
-	newAccounts := initAccountPool(srv, m, len(testAccounts))
-	initFund := ethMath.BigPow(10, 20)
-
-	// normalTransferInitialFund(srv, newAccounts, initFund)
-	testAccounts = append(testAccounts, newAccounts...)
-	fastTransferInitialFund(srv, testAccounts, initFund)
-	_, err := updateTestAccountBalance(srv, testAccounts)
-
-	if err == nil {
-		writeJSON(testAccounts, accountInfoDB, 0)
-	}
-
-	return testAccounts[:n], err
-}
-
 func TestBasicPTX(t *testing.T) {
 	srv := initSrv
 	defer srv.tmNode.Stop()
 
-	accounts, err := initAccountsForPtxTest(srv, 8)
+	accounts, err := initAccountsForPtxTest(srv, rootDir, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -916,7 +843,7 @@ func TestBasicContract(t *testing.T) {
 func TestStateDBCommit(t *testing.T) {
 	srv := initSrv
 
-	testAccounts, ok := loadTestAccountsFromFile(accountInfoDB)
+	testAccounts, ok := loadTestAccountsFromFile(rootDir, accountInfoDB)
 	if !ok {
 		t.Fatal("loadTestAccountsFromFile Fail!")
 	}
@@ -950,7 +877,7 @@ func TestStateDBCommit(t *testing.T) {
 func BenchmarkCommit(b *testing.B) {
 	srv := initSrv
 
-	testAccounts, ok := loadTestAccountsFromFile(accountInfoDB)
+	testAccounts, ok := loadTestAccountsFromFile(rootDir, accountInfoDB)
 	if !ok {
 		b.Fatal("loadTestAccountsFromFile Fail!")
 	}
@@ -1057,4 +984,28 @@ func Test4KSimpleTx(t *testing.T) {
 			t.Error("Meet error:", err, "Idx :=", idx)
 		}
 	}
+}
+
+func TestReject4KRemoteCheckTx(t *testing.T) {
+	txCnt := 4096 * 8
+	remoteClientCnt := 64	
+	httpClients := createRemoteClientConnections(remoteClientCnt)
+	txsBytes := [][]byte{}
+	fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Prepare Tx for", remoteClientCnt, "clients.")
+	for i := 0; i < txCnt; i++ {
+		fakeTxBytes := big.NewInt((int64)(i)).Bytes()
+		txsBytes = append(txsBytes, fakeTxBytes)
+	}
+
+	start := time.Now()
+	fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Start time:", start)
+	t.Log("Start time:", start)
+	wg := addTxsToHTTPClientAsync(httpClients, txsBytes)
+	wg.Wait()
+	end := time.Now()
+	t.Log("End time:", end)
+	t.Log("Add ", txCnt, " tx costs :", end.Sub(start))
+	fmt.Println("Add ", txCnt, " tx costs :", end.Sub(start))
+
+	// time.Sleep(5 * time.Second)
 }

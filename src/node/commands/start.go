@@ -1,8 +1,10 @@
 package commands
 
 import (
+	"time"
 	"fmt"
 	"os"
+	"bytes"
 	"path"
 
 	"github.com/pkg/errors"
@@ -11,11 +13,16 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/ethereum/go-ethereum/eth"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/tendermint/tmlibs/cli"
 	cmn "github.com/tendermint/tmlibs/common"
 
 	"github.com/dora/ultron/app"
 	"github.com/dora/ultron/genesis"
+)
+
+var (
+	PlayFlag = "play"
 )
 
 // GetStartCmd - initialize a command as the start command with tick
@@ -25,6 +32,9 @@ func GetStartCmd() *cobra.Command {
 		Short: "Start this full node",
 		RunE:  startCmd(),
 	}
+
+	startCmd.Flags().String(PlayFlag, "true", "Play test scripts")
+
 	return startCmd
 }
 
@@ -57,6 +67,13 @@ func start(rootDir string, storeApp *app.StoreApp) error {
 		return errors.Errorf("Error in start services: %v\n", err)
 	}
 
+	mode := viper.GetString(PlayFlag)
+	switch mode {
+	case "loop" :
+		err = playLoopBasicTx(srvs, rootDir)
+	default:
+	}
+
 	// wait forever
 	cmn.TrapSignal(func() {
 		srvs.tmNode.Stop()
@@ -64,6 +81,65 @@ func start(rootDir string, storeApp *app.StoreApp) error {
 
 	return nil
 }
+
+func playLoopBasicTx(srv *Services, rootDir string) error {
+	txCnt := 8192
+	accounts, err := initAccountsForPtxTest(srv, rootDir, txCnt)
+	if err != nil {
+		return fmt.Errorf("ERROR: %s", err)
+	}
+
+	remoteClientCnt := 8
+	httpClients := createRemoteClientConnections(remoteClientCnt)
+	fmt.Println("!!!!!!!!!!!!!!!!!! create", len(httpClients), "remote clients.")
+
+	txsCh, _ := prepareTXsAsync(srv, txCnt, accounts)
+
+	go func() {
+		tick := 0
+		for true {
+			start := time.Now()
+			fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Start time:", start)
+
+			queuedTxHash := []common.Hash{}
+			txsBytes := [][]byte{}
+			select {
+			case txs := <-txsCh :
+				fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Tx Received!")
+				for _, signedTx := range txs {
+					buf := new(bytes.Buffer)
+					signedTx.EncodeRLP(buf)
+					txsBytes = append(txsBytes, buf.Bytes())
+					queuedTxHash = append(queuedTxHash, signedTx.Hash())
+				}
+				start = time.Now()
+				fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ", len(txsBytes), "Tx Received!")
+				wg := addTxsToHTTPClientAsync(httpClients, txsBytes)
+				wg.Wait()
+			}
+	
+			end := time.Now()
+			fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Add ", txCnt, " tx in", remoteClientCnt, "costs :", end.Sub(start))
+		
+			if tick % 3 == 0 {
+//			    time.Sleep(3 * time.Second)
+			    err = waitTxsAsync(srv, queuedTxHash[txCnt - 1:])
+			    if err != nil {
+			        fmt.Println("ERROR: waitTxsAsync meets error", err)
+			    }
+			}
+
+			tick++
+//			err = waitTxsAsync(srv, queuedTxHash)
+//			if err != nil {
+//				fmt.Println("")
+//			}
+		}
+	}()
+
+	return nil
+}
+
 
 func createBaseCoinApp(rootDir string, storeApp *app.StoreApp, ethApp *app.EthermintApplication, ethereum *eth.Ethereum) (*app.BaseApp, error) {
 	ultronApp, err := app.NewBaseApp(storeApp, ethApp, ethereum)

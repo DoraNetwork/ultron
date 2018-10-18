@@ -451,7 +451,7 @@ func TestBasicTokenContract(t *testing.T) {
 	t.Log("contract loaded, hex address ", contractAddr.Hex())
 	checkErrs(t, err)
 
-	accounts, err := initAccountsForPtxTest(srv, 8)
+	accounts, err := initAccountsForPtxTest(srv, rootDir, 8)
 	checkErrs(t, err)
 
 	pool := srv.backend.Ethereum().TxPool()
