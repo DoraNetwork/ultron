@@ -74,7 +74,7 @@ func (ac awardCalculator) AwardAll() {
 	for _, val := range ac.validators {
 		var validator validator
 		var delegators []delegator
-		candidate := GetCandidateByAddress(val.OwnerAddress)
+		candidate := GetCandidateByPubKey(utils.PubKeyString(val.PubKey))
 		if candidate.Shares == "0" {
 			continue
 		}

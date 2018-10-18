@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	goerr "errors"
 	"math/big"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth"
 	abci "github.com/tendermint/abci/types"
 	tmTypes "github.com/tendermint/tendermint/types"
+	cmn "github.com/tendermint/tmlibs/common"
 )
 
 // BaseApp - The ABCI application
@@ -25,8 +27,8 @@ type BaseApp struct {
 	txDispatcher        *TxDispatcher
 	checkedTx           map[common.Hash]*types.Transaction
 	ethereum            *eth.Ethereum
-	AbsentValidators    []int32
-	ByzantineValidators []*abci.Evidence
+	LastCommitInfo      abci.LastCommitInfo
+	ByzantineValidators []abci.Evidence
 	Random              *abci.VrfRandom
 }
 
@@ -206,8 +208,8 @@ func (app *BaseApp) GetTx(req abci.RequestGetTx) (res abci.ResponseGetTx) {
 // BeginBlock - ABCI
 func (app *BaseApp) BeginBlock(req abci.RequestBeginBlock) (res abci.ResponseBeginBlock) {
 	app.EthApp.BeginBlock(req)
-	app.AbsentValidators = req.AbsentValidators
-	app.logger.Info("BeginBlock", "absentvalidators", app.AbsentValidators)
+	app.LastCommitInfo = req.LastCommitInfo
+	app.logger.Info("BeginBlock", "LastCommitInfo", app.LastCommitInfo)
 	app.ByzantineValidators = req.ByzantineValidators
 	app.Random = req.Header.Random
 
@@ -219,28 +221,19 @@ func (app *BaseApp) EndBlock(req abci.RequestEndBlock) (res abci.ResponseEndBloc
 	app.EthApp.EndBlock(req)
 	totalUsedGasFee := app.EthApp.GetTotalUsedGasFee()
 
-	// obtain validator set changes
-	diff, err := stake.UpdateValidatorSet(app.Append(), app.Random.Seed)
-	if err != nil {
-		panic(err)
-	}
-	app.AddValChange(diff)
-
-	// eliminate absent validators
-	cs := stake.GetCandidates()
-	cs.Sort()
-	validators := cs.Validators()
-	absence := make([]bool, len(validators))
-	for _, i := range app.AbsentValidators {
-		if int(i) < len(absence) {
-			absence[i] = true
-		}
-	}
-
+	// accumulate present validators
 	presentValidators := stake.Validators{}
-	for i, v := range validators {
-		if !absence[i] {
-			presentValidators = append(presentValidators, v)
+	for _, vote := range app.LastCommitInfo.Votes {
+		if vote.SignedLastBlock {
+			pk := fmt.Sprintf("%X", vote.Validator.PubKey[1:]) //skip type byte
+			candidate := stake.GetCandidateByPubKey(pk)
+			if candidate != nil {
+				validator := stake.Validator(*candidate)
+				presentValidators = append(presentValidators, validator)
+				app.logger.Debug(cmn.Fmt("present validator: %v", vote.Validator))
+			}
+		} else {
+			app.logger.Debug(cmn.Fmt("absent validator: %v", vote.Validator))
 		}
 	}
 
@@ -259,6 +252,13 @@ func (app *BaseApp) EndBlock(req abci.RequestEndBlock) (res abci.ResponseEndBloc
 		}
 		app.ByzantineValidators = app.ByzantineValidators[:0]
 	}
+
+	// obtain validator set changes
+	diff, err := stake.UpdateValidatorSet(app.Append(), app.Random.Seed)
+	if err != nil {
+		panic(err)
+	}
+	app.AddValChange(diff)
 
 	// todo punish those validators who has been absent for up to 3 hours
 	app.EthApp.backend.UpdateProposer()
