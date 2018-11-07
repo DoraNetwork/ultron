@@ -77,7 +77,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	// }
 
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
-	p.engine.Finalize(p.bc, block.Header(), p.state, block.Transactions(), block.Uncles(), p.receipts)
+	// p.engine.Finalize(p.bc, block.Header(), p.state, block.Transactions(), block.Uncles(), p.receipts)
 
 	return p.receipts, p.logs, block.Header().GasUsed, nil
 }
