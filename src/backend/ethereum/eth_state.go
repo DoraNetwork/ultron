@@ -209,14 +209,14 @@ func (es *EthState) resetWorkState(receiver common.Address) error {
 }
 
 func (es *EthState) UpdateHeaderWithTimeInfo(
-	config *params.ChainConfig, parentTime uint64, numTx uint64) {
+	config *params.ChainConfig, parentTime uint64, numTx uint64, proposer []byte) {
 
 	es.mtx.Lock()
 	defer es.mtx.Unlock()
 	if es.IsPtxEnabled() {
 		es.txExecutor.beginBlock()
 	}
-	es.work.updateHeaderWithTimeInfo(config, parentTime, numTx)
+	es.work.updateHeaderWithTimeInfo(config, parentTime, numTx, proposer)
 }
 
 func (es *EthState) GasLimit() big.Int {
@@ -371,9 +371,11 @@ func (ws *workState) commit(blockchain *core.BlockChain, db ethdb.Database) (com
 }
 
 func (ws *workState) updateHeaderWithTimeInfo(
-	config *params.ChainConfig, parentTime uint64, numTx uint64) {
+	config *params.ChainConfig, parentTime uint64, numTx uint64, proposer []byte) {
 
 	lastBlock := ws.parent
+	coinbase := &common.Address{}
+	coinbase.SetBytes(proposer)
 	parentHeader := &ethTypes.Header{
 		Difficulty: lastBlock.Difficulty(),
 		Number:     lastBlock.Number(),
@@ -381,6 +383,7 @@ func (ws *workState) updateHeaderWithTimeInfo(
 	}
 	ws.header.Time = new(big.Int).SetUint64(parentTime)
 	ws.header.Difficulty = ethash.CalcDifficulty(config, parentTime, parentHeader)
+	ws.header.Coinbase = *coinbase
 	ws.transactions = make([]*ethTypes.Transaction, 0, numTx)
 	ws.receipts = make([]*ethTypes.Receipt, 0, numTx)
 	ws.allLogs = make([]*ethTypes.Log, 0, numTx)

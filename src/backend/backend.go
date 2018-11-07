@@ -177,7 +177,7 @@ func (b *Backend) InitEthState(receiver common.Address) error {
 // #unstable
 func (b *Backend) UpdateHeaderWithTimeInfo(tmHeader *abciTypes.Header) {
 	b.es.UpdateHeaderWithTimeInfo(b.ethereum.ApiBackend.ChainConfig(), uint64(tmHeader.Time),
-		uint64(tmHeader.GetNumTxs()))
+		uint64(tmHeader.GetNumTxs()), tmHeader.Proposer)
 }
 
 // GasLimit returns the maximum gas per block
